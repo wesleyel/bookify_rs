@@ -1,10 +1,9 @@
 use std::{collections::BTreeMap, path::PathBuf};
 
 use crate::{
-    calc::{generate_booklet_imposition, LayoutType},
-    error::ImpositionError,
+    args::{FlipDirection, OddEven, ReadingDirection}, calc::{generate_booklet_imposition, LayoutType}, error::ImpositionError
 };
-use lopdf::{Document, Object, ObjectId};
+use lopdf::{Document, Object, ObjectId, Dictionary, Stream};
 
 /// 重新调整 PDF 页面的顺序。
 ///
@@ -110,6 +109,188 @@ pub fn rearrange_pdf_pages(
 
     // 8. 保存修改后的文档
     doc.save(output_path)?;
+
+    Ok(())
+}
+
+/// 导出用于手动双面打印的 PDF
+///
+/// # 参数
+/// * `input_path` - 输入 PDF 文件的路径
+/// * `output_path` - 输出 PDF 文件的路径
+/// * `reading_direction` - 翻页方向
+/// * `flip_direction` - 翻转方向
+/// * `odd_even` - 输出奇数页还是偶数页
+///
+/// # 返回
+/// `Result<()>` - 如果操作成功则返回 `Ok(())`，否则返回 `Err(ImpositionError)`
+///
+/// # 示例
+/// ```no_run
+/// use bookify_rs::{
+///     args::{FlipDirection, OddEven, ReadingDirection},
+///     imposition::export_double_sided_pdf,
+/// };
+/// use std::path::PathBuf;
+///
+/// let input = PathBuf::from("input.pdf");
+/// let output = PathBuf::from("output.pdf");
+/// export_double_sided_pdf(
+///     input,
+///     output,
+///     ReadingDirection::LeftToRight,
+///     FlipDirection::ShortEdge,
+///     OddEven::Odd,
+/// )?;
+/// ```
+pub fn export_double_sided_pdf(
+    input_path: PathBuf,
+    output_path: PathBuf,
+    reading_direction: ReadingDirection,
+    flip_direction: FlipDirection,
+    odd_even: OddEven,
+) -> Result<(), ImpositionError> {
+    // 1. 加载 PDF 文档
+    let mut doc = Document::load(&input_path)?;
+
+    // 2. 获取文档中所有页面的 ObjectId 映射
+    let pages_map: BTreeMap<u32, ObjectId> = doc.get_pages();
+    let total_pages = pages_map.len() as u32;
+
+    // 3. 生成页面顺序
+    let page_order = generate_double_sided_order(
+        total_pages,
+        reading_direction,
+        flip_direction,
+        odd_even,
+    )?;
+
+    // 4. 构建新的 Kids 数组
+    let mut new_kids_objects = Vec::with_capacity(page_order.len());
+    for &page_num in &page_order {
+        if page_num == 0 {
+            // 添加空白页
+            let blank_page_id = create_blank_page(&mut doc)?;
+            new_kids_objects.push(Object::Reference(blank_page_id));
+        } else if let Some(&page_id) = pages_map.get(&page_num) {
+            new_kids_objects.push(Object::Reference(page_id));
+        } else {
+            return Err(ImpositionError::Other(format!(
+                "页面 {} 在文档中未找到",
+                page_num
+            )));
+        }
+    }
+
+    // 5. 更新文档的页面结构
+    update_document_pages(&mut doc, new_kids_objects, page_order.len() as u32)?;
+
+    // 6. 保存修改后的文档
+    doc.save(&output_path)?;
+
+    Ok(())
+}
+
+/// 生成双面打印的页面顺序
+fn generate_double_sided_order(
+    total_pages: u32,
+    reading_direction: ReadingDirection,
+    flip_direction: FlipDirection,
+    odd_even: OddEven,
+) -> Result<Vec<u32>, ImpositionError> {
+    // 确定是否需要倒序
+    let should_reverse = match (reading_direction, flip_direction, odd_even) {
+        (ReadingDirection::LeftToRight, FlipDirection::ShortEdge, _) => false,
+        (ReadingDirection::RightToLeft, FlipDirection::ShortEdge, _) => true,
+        (ReadingDirection::LeftToRight, FlipDirection::LongEdge, OddEven::Even) => true,
+        (ReadingDirection::LeftToRight, FlipDirection::LongEdge, OddEven::Odd) => false,
+        (ReadingDirection::RightToLeft, FlipDirection::LongEdge, OddEven::Odd) => true,
+        (ReadingDirection::RightToLeft, FlipDirection::LongEdge, OddEven::Even) => false,
+    };
+
+    // 生成页面序列
+    let mut pages = match odd_even {
+        OddEven::Odd => {
+            // 生成奇数页序列：1, 3, 5, ...
+            (1..=total_pages)
+                .step_by(2)
+                .collect::<Vec<u32>>()
+        }
+        OddEven::Even => {
+            // 生成偶数页序列：2, 4, 6, ...
+            let mut even_pages: Vec<u32> = (2..=total_pages)
+                .step_by(2)
+                .collect();
+            
+            // 如果总页数为奇数，添加一个空白页（用 0 表示）
+            if total_pages % 2 == 1 {
+                even_pages.push(0);
+            }
+            even_pages
+        }
+    };
+
+    // 如果需要倒序，则反转页面序列
+    if should_reverse {
+        pages.reverse();
+    }
+
+    Ok(pages)
+}
+
+/// 创建空白页
+fn create_blank_page(doc: &mut Document) -> Result<ObjectId, ImpositionError> {
+    // 创建一个新的空白页面
+    let mut page_dict = Dictionary::new();
+    
+    // 设置页面类型
+    page_dict.set(b"Type", Object::Name(b"Page".to_vec()));
+    
+    // 设置页面大小（A4）
+    let media_box = Object::Array(vec![
+        Object::Integer(0),
+        Object::Integer(0),
+        Object::Integer(595), // A4 宽度（点）
+        Object::Integer(842), // A4 高度（点）
+    ]);
+    page_dict.set(b"MediaBox", media_box);
+
+    // 设置空白内容流
+    let content_stream = Stream::new(Dictionary::new(), Vec::new());
+    let content_id = doc.add_object(Object::Stream(content_stream));
+    page_dict.set(b"Contents", Object::Reference(content_id));
+
+    // 添加页面到文档
+    let page_id = doc.add_object(Object::Dictionary(page_dict));
+
+    Ok(page_id)
+}
+
+/// 更新文档的页面结构
+fn update_document_pages(
+    doc: &mut Document,
+    new_kids_objects: Vec<Object>,
+    page_count: u32,
+) -> Result<(), ImpositionError> {
+    // 获取 Catalog 字典
+    let catalog_dict = doc.catalog()?;
+
+    // 获取 Pages 字典的引用
+    let pages_dict_id = catalog_dict
+        .get(b"Pages")
+        .map_err(|_| ImpositionError::Other("Catalog 字典中缺少 'Pages' 条目".to_string()))?
+        .as_reference()
+        .map_err(|_| ImpositionError::Other("Catalog 中的 'Pages' 条目不是引用".to_string()))?;
+
+    // 获取并更新 Pages 字典
+    let pages_dict = doc
+        .get_object_mut(pages_dict_id)
+        .and_then(Object::as_dict_mut)
+        .map_err(|_| ImpositionError::Other("无法获取可变的 Pages 字典".to_string()))?;
+
+    // 更新 Kids 数组和页面计数
+    pages_dict.set(b"Kids", Object::Array(new_kids_objects));
+    pages_dict.set(b"Count", Object::Integer(page_count as i64));
 
     Ok(())
 }
