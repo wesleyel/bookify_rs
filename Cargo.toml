@@ -6,8 +6,8 @@ repository = "https://github.com/wesleyel/bookify-rs"
 description = "A PDF processing tool for booklet imposition and double-sided printing"
 license = "MIT"
 authors = ["wesleyel <48174882+wesleyel@users.noreply.github.com>"]
-categories = ["cli-application"]
-keywords = ["pdf", "booklet", "double-sided", "imposition"]
+categories = ["command-line-utilities"]
+keywords = ["pdf", "booklet", "imposition", "zine", "duplex"]
 
 [dependencies]
 clap = { version = "4.4", features = ["derive"] }
