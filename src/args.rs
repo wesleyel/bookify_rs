@@ -3,26 +3,21 @@ use std::path::PathBuf;
 use crate::calc::LayoutType;
 use clap::{Parser, Subcommand, ValueEnum};
 
-/// 翻页方向
+/// 翻转类型
 #[derive(Copy, Clone, Debug, ValueEnum)]
-pub enum ReadingDirection {
-    /// 从左到右翻页
-    #[value(name = "left-to-right")]
-    LeftToRight,
-    /// 从右到左翻页  
-    #[value(name = "right-to-left")]
-    RightToLeft,
-}
-
-/// 翻转方向
-#[derive(Copy, Clone, Debug, ValueEnum)]
-pub enum FlipDirection {
-    /// 短边翻转
-    #[value(name = "short-edge")]
-    ShortEdge,
-    /// 长边翻转
-    #[value(name = "long-edge")]
-    LongEdge,
+pub enum FlipType {
+    /// 奇偶页面都翻转
+    #[value(name = "rr")]
+    RR,
+    /// 奇偶页面都不翻转
+    #[value(name = "nn")]
+    NN,
+    /// 奇页面翻转，偶页面不翻转
+    #[value(name = "rn")]
+    RN,
+    /// 偶页面翻转，奇页面不翻转
+    #[value(name = "nr")]
+    NR,
 }
 
 /// 输出奇数或偶数页
@@ -63,13 +58,9 @@ pub struct DoubleSidedOptions {
     #[arg(short, long, value_hint = clap::ValueHint::FilePath)]
     pub output: Option<PathBuf>,
 
-    /// 翻页方向
-    #[arg(long, value_enum, default_value = "left-to-right")]
-    pub reading_direction: ReadingDirection,
-
-    /// 翻转方向
-    #[arg(long, value_enum, default_value = "long-edge")]
-    pub flip_direction: FlipDirection,
+    /// 翻转类型, 默认奇偶页面都翻转
+    #[arg(long, value_enum, default_value = "rr")]
+    pub flip_type: FlipType,
 
     /// 输出奇数或偶数页
     #[arg(long, value_enum, default_value = "odd")]

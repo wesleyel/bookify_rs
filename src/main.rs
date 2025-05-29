@@ -41,8 +41,8 @@ fn handle_double_sided(opts: bookify_rs::args::DoubleSidedOptions) -> Result<(),
     } else {
         Builder::new()
             .prefix(&format!(
-                "double-sided-{:?}-{:?}-{:?}",
-                opts.reading_direction, opts.flip_direction, opts.odd_even
+                "double-sided-{:?}-{:?}",
+                opts.flip_type, opts.odd_even
             ))
             .suffix(".pdf")
             .tempfile()
@@ -54,8 +54,7 @@ fn handle_double_sided(opts: bookify_rs::args::DoubleSidedOptions) -> Result<(),
     export_double_sided_pdf(
         input_path,
         output_path.clone(),
-        opts.reading_direction,
-        opts.flip_direction,
+        opts.flip_type,
         opts.odd_even,
     )?;
 

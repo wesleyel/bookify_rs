@@ -1,9 +1,11 @@
 use std::{collections::BTreeMap, path::PathBuf};
 
 use crate::{
-    args::{FlipDirection, OddEven, ReadingDirection}, calc::{generate_booklet_imposition, LayoutType}, error::ImpositionError
+    args::{FlipType, OddEven},
+    calc::{generate_booklet_imposition, LayoutType},
+    error::ImpositionError,
 };
-use lopdf::{Document, Object, ObjectId, Dictionary, Stream};
+use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 
 /// 重新调整 PDF 页面的顺序。
 ///
@@ -146,8 +148,7 @@ pub fn rearrange_pdf_pages(
 pub fn export_double_sided_pdf(
     input_path: PathBuf,
     output_path: PathBuf,
-    reading_direction: ReadingDirection,
-    flip_direction: FlipDirection,
+    flip_type: FlipType,
     odd_even: OddEven,
 ) -> Result<(), ImpositionError> {
     // 1. 加载 PDF 文档
@@ -158,12 +159,7 @@ pub fn export_double_sided_pdf(
     let total_pages = pages_map.len() as u32;
 
     // 3. 生成页面顺序
-    let page_order = generate_double_sided_order(
-        total_pages,
-        reading_direction,
-        flip_direction,
-        odd_even,
-    )?;
+    let page_order = generate_double_sided_order(total_pages, flip_type, odd_even)?;
 
     // 4. 构建新的 Kids 数组
     let mut new_kids_objects = Vec::with_capacity(page_order.len());
@@ -194,34 +190,31 @@ pub fn export_double_sided_pdf(
 /// 生成双面打印的页面顺序
 fn generate_double_sided_order(
     total_pages: u32,
-    reading_direction: ReadingDirection,
-    flip_direction: FlipDirection,
+    flip_type: FlipType,
     odd_even: OddEven,
 ) -> Result<Vec<u32>, ImpositionError> {
     // 确定是否需要倒序
-    let should_reverse = match (reading_direction, flip_direction, odd_even) {
-        (ReadingDirection::LeftToRight, FlipDirection::ShortEdge, _) => false,
-        (ReadingDirection::RightToLeft, FlipDirection::ShortEdge, _) => true,
-        (ReadingDirection::LeftToRight, FlipDirection::LongEdge, OddEven::Even) => true,
-        (ReadingDirection::LeftToRight, FlipDirection::LongEdge, OddEven::Odd) => false,
-        (ReadingDirection::RightToLeft, FlipDirection::LongEdge, OddEven::Odd) => true,
-        (ReadingDirection::RightToLeft, FlipDirection::LongEdge, OddEven::Even) => false,
+    let should_reverse = match (flip_type, odd_even) {
+        (FlipType::RR, OddEven::Odd) => true,
+        (FlipType::RR, OddEven::Even) => true,
+        (FlipType::NN, OddEven::Odd) => false,
+        (FlipType::NN, OddEven::Even) => false,
+        (FlipType::RN, OddEven::Odd) => true,
+        (FlipType::RN, OddEven::Even) => false,
+        (FlipType::NR, OddEven::Odd) => false,
+        (FlipType::NR, OddEven::Even) => true,
     };
 
     // 生成页面序列
     let mut pages = match odd_even {
         OddEven::Odd => {
             // 生成奇数页序列：1, 3, 5, ...
-            (1..=total_pages)
-                .step_by(2)
-                .collect::<Vec<u32>>()
+            (1..=total_pages).step_by(2).collect::<Vec<u32>>()
         }
         OddEven::Even => {
             // 生成偶数页序列：2, 4, 6, ...
-            let mut even_pages: Vec<u32> = (2..=total_pages)
-                .step_by(2)
-                .collect();
-            
+            let mut even_pages: Vec<u32> = (2..=total_pages).step_by(2).collect();
+
             // 如果总页数为奇数，添加一个空白页（用 0 表示）
             if total_pages % 2 == 1 {
                 even_pages.push(0);
@@ -242,10 +235,10 @@ fn generate_double_sided_order(
 fn create_blank_page(doc: &mut Document) -> Result<ObjectId, ImpositionError> {
     // 创建一个新的空白页面
     let mut page_dict = Dictionary::new();
-    
+
     // 设置页面类型
     page_dict.set(b"Type", Object::Name(b"Page".to_vec()));
-    
+
     // 设置页面大小（A4）
     let media_box = Object::Array(vec![
         Object::Integer(0),
