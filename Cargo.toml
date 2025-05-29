@@ -2,6 +2,12 @@
 name = "bookify_rs"
 version = "0.1.0"
 edition = "2021"
+repository = "https://github.com/wesleyel/bookify-rs"
+description = "A PDF processing tool for booklet imposition and double-sided printing"
+license = "MIT"
+authors = ["wesleyel <48174882+wesleyel@users.noreply.github.com>"]
+categories = ["cli-application"]
+keywords = ["pdf", "booklet", "double-sided", "imposition"]
 
 [dependencies]
 clap = { version = "4.4", features = ["derive"] }
