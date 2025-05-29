@@ -1,101 +1,115 @@
+use std::{collections::BTreeMap, path::PathBuf};
+
 use crate::{
-    args::{Cli},
-    calc::{generate_booklet_imposition},
+    calc::{generate_booklet_imposition, LayoutType},
     error::ImpositionError,
 };
-use lopdf::{dictionary, Dictionary, Document, Object, Stream};
+use lopdf::{Document, Object, ObjectId};
 
-/// 处理 PDF 文件并生成小册子排版
-pub fn process_pdf(cli: &Cli) -> Result<(), ImpositionError> {
-    // 1. 打开输入 PDF
-    let doc = Document::load(&cli.input)?;
+/// 重新调整 PDF 页面的顺序。
+///
+/// # 参数
+/// * `input_path` - 输入 PDF 文件的路径。
+/// * `output_path` - 输出 PDF 文件的路径。
+/// * `new_order` - 一个 Vec，包含新的页面顺序。
+///                 例如，`vec![3, 1, 2]` 表示将原始文档的第3页作为新文档的第1页，
+///                 第1页作为新文档的第2页，第2页作为新文档的第3页。
+///                 页面编号是 1-based。
+///
+/// # 返回
+/// `Result<()>` - 如果操作成功则返回 `Ok(())`，否则返回 `Err`。
+///
+/// # 示例
+/// ```no_run
+/// // 假设你有一个名为 "input.pdf" 的文件
+/// // 将原始文档的第3页放在第1位，第1页放在第2位，第2页放在第3位
+/// let new_order = vec![3, 1, 2];
+/// match rearrange_pdf_pages("input.pdf", "output.pdf", new_order) {
+///     Ok(_) => println!("PDF pages rearranged successfully!"),
+///     Err(e) => eprintln!("Error rearranging PDF: {}", e),
+/// }
+/// ```
+pub fn rearrange_pdf_pages(
+    input_path: PathBuf,
+    output_path: PathBuf,
+    layout: LayoutType,
+) -> Result<(), ImpositionError> {
+    // 1. 加载 PDF 文档
+    let mut doc = Document::load(input_path)?;
 
-    // 2. 获取实际页数
-    let actual_pages = doc.get_pages().len() as u32;
+    // 2. 获取文档中所有页面的 ObjectId 映射
+    // `get_pages()` 返回一个 BTreeMap<u32, ObjectId>，其中 u32 是 1-based 的页面编号
+    // ObjectId 是该页面字典的引用。
+    let pages_map: BTreeMap<u32, ObjectId> = doc.get_pages();
 
-    // 3. 生成排版顺序
-    let imposition_order = generate_booklet_imposition(actual_pages, cli.layout);
-
-    // 4. 创建新的 PDF 文档
-    let mut new_doc = Document::new();
-
-    // 5. 复制页面内容
-    for &page_num in &imposition_order {
-        if page_num == 0 {
-            // 添加空白页
-            let blank_page = create_blank_page(&doc)?;
-            let page_id = new_doc.add_object(blank_page);
-
-            // 将页面添加到文档的页面树中
-            let mut pages_dict = Dictionary::new();
-            pages_dict.set("Type", "Pages");
-            pages_dict.set("Kids", vec![Object::Reference(page_id)]);
-            pages_dict.set("Count", 1);
-            let pages_id = new_doc.add_object(Object::Dictionary(pages_dict));
-
-            // 更新文档目录
-            let mut catalog = Dictionary::new();
-            catalog.set("Type", "Catalog");
-            catalog.set("Pages", Object::Reference(pages_id));
-            new_doc.add_object(Object::Dictionary(catalog));
-        } else {
-            // 复制实际页面
-            let pages = doc.get_pages();
-            let page_id = pages
-                .get(&(page_num as u32))
-                .ok_or(ImpositionError::Other(format!("找不到页面 {}", page_num)))?;
-            let page = doc.get_object(*page_id)?;
-
-            // 克隆页面对象到新文档
-            let new_page_id = new_doc.add_object(page.clone());
-
-            // 将页面添加到文档的页面树中
-            let mut pages_dict = Dictionary::new();
-            pages_dict.set("Type", "Pages");
-            pages_dict.set("Kids", vec![Object::Reference(new_page_id)]);
-            pages_dict.set("Count", 1);
-            let pages_id = new_doc.add_object(Object::Dictionary(pages_dict));
-
-            // 更新文档目录
-            let mut catalog = Dictionary::new();
-            catalog.set("Type", "Catalog");
-            catalog.set("Pages", Object::Reference(pages_id));
-            new_doc.add_object(Object::Dictionary(catalog));
+    // 3. 验证新顺序中的页面号是否有效
+    let original_num_pages = pages_map.len() as u32;
+    let new_order = generate_booklet_imposition(original_num_pages, layout);
+    if new_order.is_empty() {
+        return Err(ImpositionError::Other(
+            "New order list cannot be empty.".to_string(),
+        ));
+    }
+    if new_order.len() != original_num_pages as usize {
+        return Err(ImpositionError::Other(format!(
+            "New order list length ({}) must match original page count ({}).",
+            new_order.len(),
+            original_num_pages
+        )));
+    }
+    for &page_num in &new_order {
+        if page_num == 0 || page_num > original_num_pages {
+            return Err(ImpositionError::Other(format!(
+                "Invalid page number {} in new order. Must be between 1 and {}.",
+                page_num, original_num_pages
+            )));
         }
     }
 
-    // 6. 保存输出文件
-    let output_path = if let Some(path) = &cli.output {
-        path.clone()
-    } else {
-        let mut path = cli.input.clone();
-        path.set_extension("booklet.pdf");
-        path
-    };
+    // 4. 构建新的 `Kids` 数组
+    let mut new_kids_objects: Vec<Object> = Vec::with_capacity(new_order.len());
+    for page_num in new_order {
+        // 从 pages_map 中获取对应页面的 ObjectId
+        if let Some(&page_id) = pages_map.get(&page_num) {
+            new_kids_objects.push(Object::Reference(page_id));
+        } else {
+            // 理论上，如果 new_order 经过了验证，这里不应该发生
+            return Err(ImpositionError::Other(format!(
+                "Page {} not found in document, despite validation.",
+                page_num
+            )));
+        }
+    }
 
-    new_doc.save(&output_path)?;
+    // 5. 找到根页面字典 (通常在 Catalog 对象的 "Pages" 条目中)
+    // 首先获取 Catalog 字典
+    let catalog_dict = doc.catalog()?;
+
+    // 获取 Pages 字典的引用
+    let pages_dict_id_obj = catalog_dict.get(b"Pages").map_err(|_| {
+        ImpositionError::Other("Catalog dictionary missing 'Pages' entry.".to_string())
+    })?;
+    let pages_dict_id = pages_dict_id_obj.as_reference().map_err(|_| {
+        ImpositionError::Other("'Pages' entry in Catalog is not a reference.".to_string())
+    })?;
+
+    let pages_dict = doc
+        .get_object_mut(pages_dict_id)
+        .and_then(Object::as_dict_mut)
+        .map_err(|_| {
+            ImpositionError::Other("Failed to get mutable Pages dictionary.".to_string())
+        })?;
+
+    // 6. 更新 Pages 字典的 "Kids" 数组
+    // 将新的 `Kids` 数组作为 Object::Array 放入 Pages 字典
+    pages_dict.set(b"Kids", Object::Array(new_kids_objects));
+
+    // 7. 更新文档的页面计数 (Optional but good practice)
+    // Although lopdf usually updates this correctly on save, explicitly setting it can prevent issues.
+    pages_dict.set(b"Count", Object::Integer(original_num_pages as i64));
+
+    // 8. 保存修改后的文档
+    doc.save(output_path)?;
 
     Ok(())
-}
-
-/// 创建空白页面
-fn create_blank_page(doc: &Document) -> Result<Object, ImpositionError> {
-    // 获取第一页的尺寸作为参考
-    let pages = doc.get_pages();
-    let first_page_id = pages
-        .get(&1)
-        .ok_or(ImpositionError::Other("文档没有页面".to_string()))?;
-    let first_page = doc.get_object(*first_page_id)?;
-
-    // 获取页面尺寸
-    let media_box = first_page.as_dict()?.get(b"MediaBox")?;
-
-    // 创建空白页面字典
-    let mut dict = Dictionary::new();
-    dict.set("Type", "Page");
-    dict.set("MediaBox", media_box.clone());
-    dict.set("Resources", Dictionary::new());
-    dict.set("Contents", Stream::new(dictionary! {}, vec![]));
-
-    Ok(Object::Dictionary(dict))
 }
