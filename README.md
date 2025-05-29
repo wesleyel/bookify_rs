@@ -1,6 +1,6 @@
 # Bookify-rs
 
-Bookify-rs 是一个用 Rust 编写的 PDF 文档处理工具，主要用于生成适合双面打印的 PDF 文件。它提供了两种主要功能：小册子拼版和双面打印优化。
+Bookify-rs 是一个用 Rust 编写的 PDF 文档处理工具，主要用于生成适合双面打印的 PDF 文件。它提供了两种主要功能：小册子拼版和手动双面打印奇偶页面单独输出。
 
 ## 功能特点
 
@@ -25,7 +25,7 @@ Bookify-rs 是一个用 Rust 编写的 PDF 文档处理工具，主要用于生�
 
 ```bash
 # 克隆仓库
-git clone https://github.com/yourusername/bookify-rs.git
+git clone https://github.com/wesleyel/bookify-rs.git
 cd bookify-rs
 
 # 编译安装
