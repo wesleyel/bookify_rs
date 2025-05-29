@@ -434,29 +434,70 @@ mod tests {
 
     fn create_test_pdf(path: &PathBuf) -> Result<(), ImpositionError> {
         let mut doc = lopdf::Document::with_version("1.5");
-        let mut imposition = Imposition {
-            document: doc,
-            filepath: path.clone(),
-            page_size: Some(PageSize::new(595.0, 842.0)),
-        };
+        let size = PageSize::new(595.0, 842.0);
+        let mut page_ids = Vec::new();
 
-        // 添加一些测试页面
+        // 直接创建页面对象
         for _ in 0..4 {
-            imposition.create_blank_page(PageSize::new(595.0, 842.0))?;
+            let page_id = doc.new_object_id();
+            let page_obj = lopdf::dictionary! {
+                "Type" => "Page",
+                "MediaBox" => vec![0.into(), 0.into(), size.width.into(), size.height.into()],
+                "Contents" => Object::Array(vec![]),
+            };
+            doc.objects.insert(page_id, Object::Dictionary(page_obj));
+            page_ids.push(page_id);
         }
 
-        imposition.document.save(path)?;
+        // 创建页面树
+        let pages_id = doc.new_object_id();
+        let kids = page_ids
+            .iter()
+            .map(|&id| Object::Reference(id))
+            .collect::<Vec<_>>();
+
+        let pages_dict = lopdf::dictionary! {
+            "Type" => "Pages",
+            "Kids" => kids,
+            "Count" => page_ids.len() as i32,
+        };
+
+        doc.objects.insert(pages_id, Object::Dictionary(pages_dict));
+
+        // 更新每个页面的Parent引用
+        for &page_id in &page_ids {
+            if let Ok(Object::Dictionary(ref mut page_dict)) = doc.get_object_mut(page_id) {
+                page_dict.set("Parent", Object::Reference(pages_id));
+            }
+        }
+
+        // 创建根目录
+        let catalog_id = doc.new_object_id();
+        let catalog_dict = lopdf::dictionary! {
+            "Type" => "Catalog",
+            "Pages" => Object::Reference(pages_id),
+        };
+
+        doc.objects.insert(catalog_id, Object::Dictionary(catalog_dict));
+        doc.trailer.set("Root", Object::Reference(catalog_id));
+
+        // 保存文档
+        doc.save(path)?;
         Ok(())
     }
 
     #[test]
     fn test_imposition_with_sample_pdf() -> Result<(), ImpositionError> {
-        // 创建一个临时的测试PDF文件
+        // 创建一个临时的测试PDF文件，使用into_temp_path()防止自动删除
         let temp_file = NamedTempFile::new().unwrap();
-        let input_path = temp_file.path().to_path_buf();
+        let temp_path = temp_file.into_temp_path();
+        let input_path = temp_path.to_path_buf();
 
         // 创建一个简单的PDF文档用于测试
         create_test_pdf(&input_path)?;
+
+        // 验证文件是否成功创建
+        assert!(input_path.exists(), "测试PDF文件未能成功创建");
 
         // 创建Imposition实例
         let mut imposition = Imposition::new(input_path.clone())?;
@@ -475,6 +516,9 @@ mod tests {
 
         // 保存结果
         imposition.save(None)?;
+
+        // 清理临时文件
+        temp_path.close()?;
 
         Ok(())
     }
