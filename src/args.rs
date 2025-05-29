@@ -17,6 +17,11 @@ pub struct Cli {
     #[arg(short, long)]
     pub method: Method,
 
+    /// The output PDF file
+    #[arg(short, long, value_hint = clap::ValueHint::FilePath)]
+    pub output: Option<PathBuf>,
+
     /// The input PDF file
+    #[arg(value_hint = clap::ValueHint::FilePath)]
     pub file: PathBuf,
 }
