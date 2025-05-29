@@ -1,31 +1,15 @@
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+/// 小册子排版错误类型
+#[derive(Debug, Error)]
 pub enum ImpositionError {
-    #[error("PDF处理错误: {0}")]
-    PDF(#[from] lopdf::Error),
-
-    #[error("IO错误: {0}")]
-    IO(#[from] std::io::Error),
-
-    #[error("无效的页面尺寸")]
-    InvalidPageSize,
-
-    #[error("无效的页面数量: {0}")]
-    InvalidPageCount(usize),
-
-    #[error("页面索引超出范围: {0}")]
-    PageIndexOutOfRange(usize),
-
-    #[error("无法创建空白页")]
-    FailedToCreateBlankPage,
-
-    #[error("无法获取页面尺寸")]
-    FailedToGetPageSize,
-
-    #[error("无法创建拼版内容")]
-    FailedToCreateImpositionContent,
-
-    #[error("无法完成文档处理")]
-    FailedToFinalizeDocument,
+    /// PDF 处理相关错误
+    #[error("PDF processing error: {0}")]
+    PdfError(#[from] lopdf::Error),
+    /// IO 错误
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
+    /// 其他错误
+    #[error("Other error: {0}")]
+    Other(String),
 }

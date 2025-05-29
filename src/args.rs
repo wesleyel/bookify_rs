@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use crate::calc::LayoutType;
 use clap::{Parser, ValueEnum};
 
 /// 翻页方向
@@ -32,15 +33,15 @@ pub struct Cli {
     #[arg(short, long, value_hint = clap::ValueHint::FilePath)]
     pub output: Option<PathBuf>,
 
-    /// 目标总页数（默认16页）
-    #[arg(long, default_value = "16")]
-    pub pages: usize,
-
-    /// 翻页方向
+    /// 翻页方向: TODO
     #[arg(long, value_enum, default_value = "left-to-right")]
     pub reading_direction: ReadingDirection,
 
-    /// 翻转方向
+    /// 翻转方向: TODO
     #[arg(long, value_enum, default_value = "short-edge")]
     pub flip_direction: FlipDirection,
+
+    /// 排版布局类型
+    #[arg(long, value_enum, default_value = "four-up")]
+    pub layout: LayoutType,
 }
