@@ -20,15 +20,6 @@ pub enum FlipDirection {
     LongEdge,
 }
 
-/// 拼版方法
-#[derive(Clone, Debug, Parser, ValueEnum)]
-pub enum Method {
-    /// 小册子拼版
-    Booklet,
-    /// 双面打印拼版
-    DoubleSided,
-}
-
 /// 命令行参数
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]

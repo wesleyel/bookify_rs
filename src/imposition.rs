@@ -1,9 +1,9 @@
 use crate::{
-    args::{Cli, FlipDirection, Method, ReadingDirection},
+    args::{Cli, FlipDirection, ReadingDirection},
     error::ImpositionError,
 };
 use lopdf::{dictionary, Dictionary, Document, Object, ObjectId, Stream};
-use std::path::{Path, PathBuf};
+use std::path::{ PathBuf};
 
 /// 页面尺寸信息
 #[derive(Debug, Clone, Copy)]
@@ -140,26 +140,140 @@ impl Imposition {
         pages: &[ObjectId],
         indices: [usize; 4],
         original_size: PageSize,
-        target_size: PageSize,
+        _target_size: PageSize,
         flip_direction: FlipDirection,
     ) -> Result<(Dictionary, String), ImpositionError> {
-        // TODO: 实现页面内容创建逻辑
-        // 这部分需要根据具体的PDF处理需求来实现
-        Err(ImpositionError::FailedToCreateImpositionContent)
+        let mut xobject_resources = Dictionary::new();
+        let mut content = Vec::new();
+
+        // 计算每个页面的位置
+        let positions = match flip_direction {
+            FlipDirection::ShortEdge => [
+                (0.0, original_size.height),                 // 左上
+                (original_size.width, original_size.height), // 右上
+                (0.0, 0.0),                                 // 左下
+                (original_size.width, 0.0),                 // 右下
+            ],
+            FlipDirection::LongEdge => [
+                (0.0, original_size.height),                 // 左上
+                (original_size.width, original_size.height), // 右上
+                (0.0, 0.0),                                 // 左下
+                (original_size.width, 0.0),                 // 右下
+            ],
+        };
+
+        // 处理每个页面
+        for (i, &page_idx) in indices.iter().enumerate() {
+            if page_idx >= pages.len() {
+                continue; // 跳过不存在的页面
+            }
+
+            let orig_page_id = pages[page_idx];
+            let (x, y) = positions[i];
+
+            // 创建 XObject 引用
+            let xobj_name = format!("X{}", i);
+            let xobject_id = new_doc.new_object_id();
+
+            // 复制原页面对象作为 XObject
+            if let Ok(orig_obj) = self.document.get_object(orig_page_id) {
+                let mut xobj = orig_obj.clone();
+
+                // 转换为 XObject
+                if let Object::Dictionary(ref mut dict) = xobj {
+                    dict.set("Type", "XObject");
+                    dict.set("Subtype", "Form");
+                    dict.set(
+                        "BBox",
+                        Object::Array(vec![
+                            0.into(),
+                            0.into(),
+                            original_size.width.into(),
+                            original_size.height.into(),
+                        ]),
+                    );
+
+                    // 复制原页面的内容流
+                    if let Ok(contents) = dict.get(b"Contents") {
+                        dict.set("Contents", contents.clone());
+                    }
+
+                    // 复制原页面的资源
+                    if let Ok(resources) = dict.get(b"Resources") {
+                        dict.set("Resources", resources.clone());
+                    }
+                }
+
+                new_doc.objects.insert(xobject_id, xobj);
+                xobject_resources.set(xobj_name.as_bytes(), Object::Reference(xobject_id));
+
+                // 添加到内容流
+                content.push(format!(
+                    "q 1 0 0 1 {} {} cm /{} Do Q\n",
+                    x, y, xobj_name
+                ));
+            }
+        }
+
+        // 创建最终的资源字典
+        let mut final_resources = Dictionary::new();
+        final_resources.set("XObject", Object::Dictionary(xobject_resources));
+
+        Ok((final_resources, content.join("")))
     }
 
     /// 完成文档处理
     pub fn finalize_document(&mut self, doc: &mut Document, page_ids: Vec<ObjectId>) -> Result<(), ImpositionError> {
-        // TODO: 实现文档完成处理逻辑
-        // 这部分需要根据具体的PDF处理需求来实现
-        Err(ImpositionError::FailedToFinalizeDocument)
+        // 创建页面树
+        let pages_id = doc.new_object_id();
+        let kids = page_ids
+            .iter()
+            .map(|&id| Object::Reference(id))
+            .collect::<Vec<_>>();
+
+        let pages_dict = lopdf::dictionary! {
+            "Type" => "Pages",
+            "Kids" => kids,
+            "Count" => page_ids.len() as i32,
+        };
+
+        doc.objects.insert(pages_id, Object::Dictionary(pages_dict));
+
+        // 更新每个页面的 Parent 引用
+        for &page_id in &page_ids {
+            if let Ok(Object::Dictionary(ref mut page_dict)) = doc.get_object_mut(page_id) {
+                page_dict.set("Parent", Object::Reference(pages_id));
+            }
+        }
+
+        // 创建根目录
+        let catalog_id = doc.new_object_id();
+        let catalog_dict = lopdf::dictionary! {
+            "Type" => "Catalog",
+            "Pages" => Object::Reference(pages_id),
+        };
+
+        doc.objects.insert(catalog_id, Object::Dictionary(catalog_dict));
+        doc.trailer.set("Root", Object::Reference(catalog_id));
+
+        // 设置文档信息
+        let info_id = doc.new_object_id();
+        let info_dict = lopdf::dictionary! {
+            "Producer" => "Bookify-rs",
+            "Creator" => "Bookify-rs PDF Imposition Tool",
+            "CreationDate" => chrono::Utc::now().format("D:%Y%m%d%H%M%S").to_string(),
+        };
+        doc.objects.insert(info_id, Object::Dictionary(info_dict));
+        doc.trailer.set("Info", Object::Reference(info_id));
+
+        Ok(())
     }
 
     /// 执行拼版处理
     pub fn impose(&mut self, args: &Cli) -> Result<(), ImpositionError> {
         // 1. 获取原始页面数量和尺寸
         let original_pages: Vec<_> = self.document.get_pages().values().cloned().collect();
-        let original_page_count = original_pages.len();
+        let _original_page_count = original_pages.len();
 
         // 获取第一页的尺寸作为模板
         let original_size = self.get_page_size(original_pages[0])?;
@@ -186,7 +300,7 @@ impl Imposition {
         let mut new_doc = Document::with_version("1.5");
         let mut new_pages = Vec::new();
 
-        for (sheet_idx, &(a, b, c, d)) in booklet_order.iter().enumerate() {
+        for (_sheet_idx, &(a, b, c, d)) in booklet_order.iter().enumerate() {
             // 创建页面ID
             let page_id = new_doc.new_object_id();
 
