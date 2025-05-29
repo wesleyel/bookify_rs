@@ -1,15 +1,15 @@
 use clap::ValueEnum;
 
-/// 定义小册子排版布局类型。
-/// 这个枚举指定了每张物理纸张上（正反两面）放置的小册子页面的总数。
+/// Defines booklet imposition layout type.
+/// This enum specifies the total number of booklet pages placed on each physical sheet (front and back).
 #[derive(Copy, Clone, Debug, ValueEnum)]
 pub enum LayoutType {
-    /// 每张物理纸张上放置 4 个小册子页面（每面 2 页）。
-    /// 适用于 A5 小册子在 A4 纸上的打印。
+    /// Place 4 booklet pages on each physical sheet (2 pages per side).
+    /// Suitable for printing A5 booklets on A4 paper.
     #[value(name = "two-up")]
     TwoUp,
-    /// 每张物理纸张上放置 8 个小册子页面（每面 4 页）。
-    /// 适用于 A6 小册子在 A4 纸上或 A5 小册子在 A3 纸上的打印。
+    /// Place 8 booklet pages on each physical sheet (4 pages per side).
+    /// Suitable for printing A6 booklets on A4 paper or A5 booklets on A3 paper.
     #[value(name = "four-up")]
     FourUp,
 }
@@ -51,9 +51,7 @@ pub fn generate_booklet_imposition(n: u32, layout: LayoutType) -> Vec<u32> {
     };
 
     // 3. 确定小册子实际需要排版的总页数，必须是 pages_per_physical_sheet 的倍数
-    // 向上取整到最近的倍数： (n + divisor - 1) / divisor * divisor
-    let total_pages =
-        ((n + pages_per_physical_sheet - 1) / pages_per_physical_sheet) * pages_per_physical_sheet;
+    let total_pages = n.div_ceil(pages_per_physical_sheet) * pages_per_physical_sheet;
 
     // 4. 初始化结果列表
     let mut imposition_list: Vec<u32> = Vec::new();
@@ -137,28 +135,19 @@ mod tests {
     #[test]
     fn test_eight_up_n_1_page() {
         let expected = vec![0, 1, 0, 0, 0, 0, 0, 0];
-        assert_eq!(
-            generate_booklet_imposition(1, LayoutType::FourUp),
-            expected
-        );
+        assert_eq!(generate_booklet_imposition(1, LayoutType::FourUp), expected);
     }
 
     #[test]
     fn test_eight_up_n_8_pages() {
         let expected = vec![8, 1, 6, 3, 2, 7, 4, 5];
-        assert_eq!(
-            generate_booklet_imposition(8, LayoutType::FourUp),
-            expected
-        );
+        assert_eq!(generate_booklet_imposition(8, LayoutType::FourUp), expected);
     }
 
     #[test]
     fn test_eight_up_n_5_pages() {
         let expected = vec![0, 1, 0, 3, 2, 0, 4, 5];
-        assert_eq!(
-            generate_booklet_imposition(5, LayoutType::FourUp),
-            expected
-        );
+        assert_eq!(generate_booklet_imposition(5, LayoutType::FourUp), expected);
     }
 
     // --- FourUp Layout Tests ---

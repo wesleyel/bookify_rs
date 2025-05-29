@@ -14,12 +14,12 @@ fn main() {
         Commands::Booklet(opts) => handle_booklet(opts),
         Commands::DoubleSided(opts) => handle_double_sided(opts),
     } {
-        eprintln!("错误：{}", e);
+        eprintln!("Error: {}", e);
         process::exit(1);
     }
 }
 
-/// 处理小册子拼版命令
+/// Handle booklet imposition command
 fn handle_booklet(opts: bookify_rs::args::BookletOptions) -> Result<(), ImpositionError> {
     let input_path = opts.input.clone();
     let output_path = opts
@@ -29,11 +29,14 @@ fn handle_booklet(opts: bookify_rs::args::BookletOptions) -> Result<(), Impositi
 
     rearrange_pdf_pages(input_path, output_path.clone(), opts.layout)?;
 
-    println!("小册子拼版完成，输出文件：{}", output_path.display());
+    println!(
+        "Booklet imposition completed, output file: {}",
+        output_path.display()
+    );
     Ok(())
 }
 
-/// 处理双面打印命令
+/// Handle double-sided printing command
 fn handle_double_sided(opts: bookify_rs::args::DoubleSidedOptions) -> Result<(), ImpositionError> {
     let input_path = opts.input.clone();
     let output_path = if let Some(path) = opts.output.clone() {
@@ -46,7 +49,7 @@ fn handle_double_sided(opts: bookify_rs::args::DoubleSidedOptions) -> Result<(),
             ))
             .suffix(".pdf")
             .tempfile()
-            .map_err(|e| ImpositionError::Other(format!("创建临时文件失败: {}", e)))?
+            .map_err(|e| ImpositionError::Other(format!("Failed to create temporary file: {}", e)))?
             .into_temp_path()
             .to_path_buf()
     };
@@ -60,7 +63,7 @@ fn handle_double_sided(opts: bookify_rs::args::DoubleSidedOptions) -> Result<(),
 
     match opts.output {
         Some(path) => println!(
-            "双面打印 {:?} 页生成完成，输出文件：{}",
+            "Double-sided printing {:?} pages completed, output file: {}",
             opts.odd_even,
             path.display()
         ),

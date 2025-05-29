@@ -7,25 +7,64 @@ use crate::{
 };
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 
-/// 重新调整 PDF 页面的顺序。
+/// Update document page structure
+fn update_document_pages(
+    doc: &mut Document,
+    new_kids_objects: Vec<Object>,
+    page_count: u32,
+) -> Result<(), ImpositionError> {
+    // Get Catalog dictionary
+    let catalog_dict = doc.catalog()?;
+
+    // Get reference to Pages dictionary
+    let pages_dict_id = catalog_dict
+        .get(b"Pages")
+        .map_err(|_| {
+            ImpositionError::Other("Missing 'Pages' entry in Catalog dictionary".to_string())
+        })?
+        .as_reference()
+        .map_err(|_| {
+            ImpositionError::Other("'Pages' entry in Catalog is not a reference".to_string())
+        })?;
+
+    // Get and update Pages dictionary
+    let pages_dict = doc
+        .get_object_mut(pages_dict_id)
+        .and_then(Object::as_dict_mut)
+        .map_err(|_| ImpositionError::Other("Cannot get mutable Pages dictionary".to_string()))?;
+
+    // Update Kids array and page count
+    pages_dict.set(b"Kids", Object::Array(new_kids_objects));
+    pages_dict.set(b"Count", Object::Integer(page_count as i64));
+
+    Ok(())
+}
+
+/// Rearrange PDF pages in a new order.
 ///
-/// # 参数
-/// * `input_path` - 输入 PDF 文件的路径。
-/// * `output_path` - 输出 PDF 文件的路径。
-/// * `new_order` - 一个 Vec，包含新的页面顺序。
-///                 例如，`vec![3, 1, 2]` 表示将原始文档的第3页作为新文档的第1页，
-///                 第1页作为新文档的第2页，第2页作为新文档的第3页。
-///                 页面编号是 1-based。
+/// # Parameters
+/// * `input_path` - Path to the input PDF file.
+/// * `output_path` - Path to the output PDF file.
+/// * `new_order` - A Vec containing the new page order.
+///                 For example, `vec![3, 1, 2]` means:
+///                 - Page 3 of the original document becomes page 1 of the new document
+///                 - Page 1 of the original document becomes page 2 of the new document
+///                 - Page 2 of the original document becomes page 3 of the new document
+///                 Page numbers are 1-based.
 ///
-/// # 返回
-/// `Result<()>` - 如果操作成功则返回 `Ok(())`，否则返回 `Err`。
+/// # Returns
+/// `Result<()>` - Returns `Ok(())` if the operation is successful, otherwise returns `Err`.
 ///
-/// # 示例
+/// # Example
 /// ```no_run
-/// // 假设你有一个名为 "input.pdf" 的文件
-/// // 将原始文档的第3页放在第1位，第1页放在第2位，第2页放在第3位
-/// let new_order = vec![3, 1, 2];
-/// match rearrange_pdf_pages("input.pdf", "output.pdf", new_order) {
+/// use std::path::PathBuf;
+/// use bookify_rs::calc::LayoutType;
+/// use bookify_rs::imposition::rearrange_pdf_pages;
+///
+/// let input = PathBuf::from("input.pdf");
+/// let output = PathBuf::from("output.pdf");
+/// let layout = LayoutType::FourUp;
+/// match rearrange_pdf_pages(input, output, layout) {
 ///     Ok(_) => println!("PDF pages rearranged successfully!"),
 ///     Err(e) => eprintln!("Error rearranging PDF: {}", e),
 /// }
@@ -35,15 +74,15 @@ pub fn rearrange_pdf_pages(
     output_path: PathBuf,
     layout: LayoutType,
 ) -> Result<(), ImpositionError> {
-    // 1. 加载 PDF 文档
+    // 1. Load PDF document
     let mut doc = Document::load(input_path)?;
 
-    // 2. 获取文档中所有页面的 ObjectId 映射
-    // `get_pages()` 返回一个 BTreeMap<u32, ObjectId>，其中 u32 是 1-based 的页面编号
-    // ObjectId 是该页面字典的引用。
+    // 2. Get ObjectId mapping of all pages in the document
+    // `get_pages()` returns a BTreeMap<u32, ObjectId>, where u32 is 1-based page number
+    // ObjectId is a reference to the page dictionary.
     let pages_map: BTreeMap<u32, ObjectId> = doc.get_pages();
 
-    // 3. 验证新顺序中的页面号是否有效
+    // 3. Verify that the page numbers in the new order are valid
     let original_num_pages = pages_map.len() as u32;
     let new_order = generate_booklet_imposition(original_num_pages, layout);
     if new_order.is_empty() {
@@ -67,83 +106,61 @@ pub fn rearrange_pdf_pages(
         }
     }
 
-    // 4. 构建新的 `Kids` 数组
+    // 4. Build new `Kids` array
     let mut new_kids_objects: Vec<Object> = Vec::with_capacity(new_order.len());
     for page_num in new_order {
-        // 从 pages_map 中获取对应页面的 ObjectId
+        // Get ObjectId of the corresponding page from pages_map
         if let Some(&page_id) = pages_map.get(&page_num) {
             new_kids_objects.push(Object::Reference(page_id));
         } else {
-            // 理论上，如果 new_order 经过了验证，这里不应该发生
+            // Theoretically, if new_order has been validated, this should not happen
             return Err(ImpositionError::Other(format!(
-                "Page {} not found in document, despite validation.",
+                "Page {} not found in document, despite validation",
                 page_num
             )));
         }
     }
 
-    // 5. 找到根页面字典 (通常在 Catalog 对象的 "Pages" 条目中)
-    // 首先获取 Catalog 字典
-    let catalog_dict = doc.catalog()?;
+    // 5. Find root page dictionary (usually in the "Pages" entry of the Catalog object), update Pages dictionary's "Kids" array, and update page count
+    update_document_pages(&mut doc, new_kids_objects, original_num_pages)?;
 
-    // 获取 Pages 字典的引用
-    let pages_dict_id_obj = catalog_dict.get(b"Pages").map_err(|_| {
-        ImpositionError::Other("Catalog dictionary missing 'Pages' entry.".to_string())
-    })?;
-    let pages_dict_id = pages_dict_id_obj.as_reference().map_err(|_| {
-        ImpositionError::Other("'Pages' entry in Catalog is not a reference.".to_string())
-    })?;
-
-    let pages_dict = doc
-        .get_object_mut(pages_dict_id)
-        .and_then(Object::as_dict_mut)
-        .map_err(|_| {
-            ImpositionError::Other("Failed to get mutable Pages dictionary.".to_string())
-        })?;
-
-    // 6. 更新 Pages 字典的 "Kids" 数组
-    // 将新的 `Kids` 数组作为 Object::Array 放入 Pages 字典
-    pages_dict.set(b"Kids", Object::Array(new_kids_objects));
-
-    // 7. 更新文档的页面计数 (Optional but good practice)
-    // Although lopdf usually updates this correctly on save, explicitly setting it can prevent issues.
-    pages_dict.set(b"Count", Object::Integer(original_num_pages as i64));
-
-    // 8. 保存修改后的文档
+    // 6. Save modified document
     doc.save(output_path)?;
 
     Ok(())
 }
 
-/// 导出用于手动双面打印的 PDF
+/// Export PDF for manual double-sided printing
 ///
-/// # 参数
-/// * `input_path` - 输入 PDF 文件的路径
-/// * `output_path` - 输出 PDF 文件的路径
-/// * `reading_direction` - 翻页方向
-/// * `flip_direction` - 翻转方向
-/// * `odd_even` - 输出奇数页还是偶数页
+/// # Parameters
+/// * `input_path` - Path to the input PDF file
+/// * `output_path` - Path to the output PDF file
+/// * `reading_direction` - Page flipping direction
+/// * `flip_direction` - Flip direction
+/// * `odd_even` - Output odd or even pages
 ///
-/// # 返回
-/// `Result<()>` - 如果操作成功则返回 `Ok(())`，否则返回 `Err(ImpositionError)`
+/// # Returns
+/// `Result<()>` - Returns `Ok(())` if the operation is successful, otherwise returns `Err(ImpositionError)`
 ///
-/// # 示例
+/// # Example
 /// ```no_run
 /// use bookify_rs::{
-///     args::{FlipDirection, OddEven, ReadingDirection},
+///     args::{FlipType, OddEven},
 ///     imposition::export_double_sided_pdf,
 /// };
 /// use std::path::PathBuf;
 ///
 /// let input = PathBuf::from("input.pdf");
 /// let output = PathBuf::from("output.pdf");
-/// export_double_sided_pdf(
+/// match export_double_sided_pdf(
 ///     input,
 ///     output,
-///     ReadingDirection::LeftToRight,
-///     FlipDirection::ShortEdge,
+///     FlipType::RR,
 ///     OddEven::Odd,
-/// )?;
+/// ) {
+///     Ok(_) => println!("PDF exported successfully!"),
+///     Err(e) => eprintln!("Error exporting PDF: {}", e),
+/// }
 /// ```
 pub fn export_double_sided_pdf(
     input_path: PathBuf,
@@ -151,49 +168,49 @@ pub fn export_double_sided_pdf(
     flip_type: FlipType,
     odd_even: OddEven,
 ) -> Result<(), ImpositionError> {
-    // 1. 加载 PDF 文档
+    // 1. Load PDF document
     let mut doc = Document::load(&input_path)?;
 
-    // 2. 获取文档中所有页面的 ObjectId 映射
+    // 2. Get ObjectId mapping of all pages in the document
     let pages_map: BTreeMap<u32, ObjectId> = doc.get_pages();
     let total_pages = pages_map.len() as u32;
 
-    // 3. 生成页面顺序
+    // 3. Generate page order
     let page_order = generate_double_sided_order(total_pages, flip_type, odd_even)?;
 
-    // 4. 构建新的 Kids 数组
+    // 4. Build new Kids array
     let mut new_kids_objects = Vec::with_capacity(page_order.len());
     for &page_num in &page_order {
         if page_num == 0 {
-            // 添加空白页
+            // Add blank page
             let blank_page_id = create_blank_page(&mut doc)?;
             new_kids_objects.push(Object::Reference(blank_page_id));
         } else if let Some(&page_id) = pages_map.get(&page_num) {
             new_kids_objects.push(Object::Reference(page_id));
         } else {
             return Err(ImpositionError::Other(format!(
-                "页面 {} 在文档中未找到",
+                "Page {} not found in document",
                 page_num
             )));
         }
     }
 
-    // 5. 更新文档的页面结构
+    // 5. Update document page structure
     update_document_pages(&mut doc, new_kids_objects, page_order.len() as u32)?;
 
-    // 6. 保存修改后的文档
+    // 6. Save modified document
     doc.save(&output_path)?;
 
     Ok(())
 }
 
-/// 生成双面打印的页面顺序
+/// Generate page order for double-sided printing
 fn generate_double_sided_order(
     total_pages: u32,
     flip_type: FlipType,
     odd_even: OddEven,
 ) -> Result<Vec<u32>, ImpositionError> {
-    // 确定是否需要倒序
+    // Determine if reverse order is needed
     let should_reverse = match (flip_type, odd_even) {
         (FlipType::RR, OddEven::Odd) => true,
         (FlipType::RR, OddEven::Even) => true,
@@ -205,17 +222,17 @@ fn generate_double_sided_order(
         (FlipType::NR, OddEven::Even) => true,
     };
 
-    // 生成页面序列
+    // Generate page sequence
     let mut pages = match odd_even {
         OddEven::Odd => {
-            // 生成奇数页序列：1, 3, 5, ...
+            // Generate odd page sequence: 1, 3, 5, ...
             (1..=total_pages).step_by(2).collect::<Vec<u32>>()
         }
         OddEven::Even => {
-            // 生成偶数页序列：2, 4, 6, ...
+            // Generate even page sequence: 2, 4, 6, ...
             let mut even_pages: Vec<u32> = (2..=total_pages).step_by(2).collect();
 
-            // 如果总页数为奇数，添加一个空白页（用 0 表示）
+            // If total pages is odd, add a blank page (represented by 0)
             if total_pages % 2 == 1 {
                 even_pages.push(0);
             }
@@ -223,7 +240,7 @@ fn generate_double_sided_order(
         }
     };
 
-    // 如果需要倒序，则反转页面序列
+    // If reverse order is needed, reverse page sequence
     if should_reverse {
         pages.reverse();
     }
@@ -231,59 +248,30 @@ fn generate_double_sided_order(
     Ok(pages)
 }
 
-/// 创建空白页
+/// Create blank page
 fn create_blank_page(doc: &mut Document) -> Result<ObjectId, ImpositionError> {
-    // 创建一个新的空白页面
+    // Create a new blank page
     let mut page_dict = Dictionary::new();
 
-    // 设置页面类型
+    // Set page type
     page_dict.set(b"Type", Object::Name(b"Page".to_vec()));
 
-    // 设置页面大小（A4）
+    // Set page size (A4)
     let media_box = Object::Array(vec![
         Object::Integer(0),
         Object::Integer(0),
-        Object::Integer(595), // A4 宽度（点）
-        Object::Integer(842), // A4 高度（点）
+        Object::Integer(595), // A4 width (points)
+        Object::Integer(842), // A4 height (points)
     ]);
     page_dict.set(b"MediaBox", media_box);
 
-    // 设置空白内容流
+    // Set blank content stream
     let content_stream = Stream::new(Dictionary::new(), Vec::new());
     let content_id = doc.add_object(Object::Stream(content_stream));
     page_dict.set(b"Contents", Object::Reference(content_id));
 
-    // 添加页面到文档
+    // Add page to document
     let page_id = doc.add_object(Object::Dictionary(page_dict));
 
     Ok(page_id)
-}
-
-/// 更新文档的页面结构
-fn update_document_pages(
-    doc: &mut Document,
-    new_kids_objects: Vec<Object>,
-    page_count: u32,
-) -> Result<(), ImpositionError> {
-    // 获取 Catalog 字典
-    let catalog_dict = doc.catalog()?;
-
-    // 获取 Pages 字典的引用
-    let pages_dict_id = catalog_dict
-        .get(b"Pages")
-        .map_err(|_| ImpositionError::Other("Catalog 字典中缺少 'Pages' 条目".to_string()))?
-        .as_reference()
-        .map_err(|_| ImpositionError::Other("Catalog 中的 'Pages' 条目不是引用".to_string()))?;
-
-    // 获取并更新 Pages 字典
-    let pages_dict = doc
-        .get_object_mut(pages_dict_id)
-        .and_then(Object::as_dict_mut)
-        .map_err(|_| ImpositionError::Other("无法获取可变的 Pages 字典".to_string()))?;
-
-    // 更新 Kids 数组和页面计数
-    pages_dict.set(b"Kids", Object::Array(new_kids_objects));
-    pages_dict.set(b"Count", Object::Integer(page_count as i64));
-
-    Ok(())
 }
