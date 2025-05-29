@@ -3,7 +3,7 @@ use crate::{
     error::ImpositionError,
 };
 use lopdf::{dictionary, Dictionary, Document, Object, ObjectId, Stream};
-use std::path::{ PathBuf};
+use std::path::PathBuf;
 
 /// 页面尺寸信息
 #[derive(Debug, Clone, Copy)]
@@ -69,7 +69,9 @@ impl Imposition {
             "Contents" => Object::Array(vec![]), // 空内容
         };
 
-        self.document.objects.insert(page_id, Object::Dictionary(page_obj));
+        self.document
+            .objects
+            .insert(page_id, Object::Dictionary(page_obj));
         Ok(page_id)
     }
 
@@ -151,14 +153,14 @@ impl Imposition {
             FlipDirection::ShortEdge => [
                 (0.0, original_size.height),                 // 左上
                 (original_size.width, original_size.height), // 右上
-                (0.0, 0.0),                                 // 左下
-                (original_size.width, 0.0),                 // 右下
+                (0.0, 0.0),                                  // 左下
+                (original_size.width, 0.0),                  // 右下
             ],
             FlipDirection::LongEdge => [
                 (0.0, original_size.height),                 // 左上
                 (original_size.width, original_size.height), // 右上
-                (0.0, 0.0),                                 // 左下
-                (original_size.width, 0.0),                 // 右下
+                (0.0, 0.0),                                  // 左下
+                (original_size.width, 0.0),                  // 右下
             ],
         };
 
@@ -208,10 +210,7 @@ impl Imposition {
                 xobject_resources.set(xobj_name.as_bytes(), Object::Reference(xobject_id));
 
                 // 添加到内容流
-                content.push(format!(
-                    "q 1 0 0 1 {} {} cm /{} Do Q\n",
-                    x, y, xobj_name
-                ));
+                content.push(format!("q 1 0 0 1 {} {} cm /{} Do Q\n", x, y, xobj_name));
             }
         }
 
@@ -223,7 +222,11 @@ impl Imposition {
     }
 
     /// 完成文档处理
-    pub fn finalize_document(&mut self, doc: &mut Document, page_ids: Vec<ObjectId>) -> Result<(), ImpositionError> {
+    pub fn finalize_document(
+        &mut self,
+        doc: &mut Document,
+        page_ids: Vec<ObjectId>,
+    ) -> Result<(), ImpositionError> {
         // 创建页面树
         let pages_id = doc.new_object_id();
         let kids = page_ids
@@ -253,7 +256,8 @@ impl Imposition {
             "Pages" => Object::Reference(pages_id),
         };
 
-        doc.objects.insert(catalog_id, Object::Dictionary(catalog_dict));
+        doc.objects
+            .insert(catalog_id, Object::Dictionary(catalog_dict));
         doc.trailer.set("Root", Object::Reference(catalog_id));
 
         // 设置文档信息
@@ -287,11 +291,8 @@ impl Imposition {
         }
 
         // 3. 计算拼版顺序
-        let booklet_order = self.calculate_booklet_order(
-            args.pages,
-            args.reading_direction,
-            args.flip_direction,
-        );
+        let booklet_order =
+            self.calculate_booklet_order(args.pages, args.reading_direction, args.flip_direction);
 
         // 4. 计算目标页面尺寸
         let target_size = self.calculate_target_size(original_size, args.flip_direction);
@@ -316,7 +317,8 @@ impl Imposition {
 
             // 创建内容流
             let content_id = new_doc.new_object_id();
-            let content_obj = Object::Stream(Stream::new(Dictionary::new(), content.as_bytes().to_vec()));
+            let content_obj =
+                Object::Stream(Stream::new(Dictionary::new(), content.as_bytes().to_vec()));
             new_doc.objects.insert(content_id, content_obj);
 
             // 创建页面对象
@@ -327,7 +329,9 @@ impl Imposition {
                 "Resources" => Object::Dictionary(resources),
             };
 
-            new_doc.objects.insert(page_id, Object::Dictionary(page_obj));
+            new_doc
+                .objects
+                .insert(page_id, Object::Dictionary(page_obj));
             new_pages.push(page_id);
         }
 
@@ -346,6 +350,132 @@ impl Imposition {
             None => self.filepath.with_extension("imposed.pdf"),
         };
         self.document.save(&output_path)?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_page_size_creation() {
+        let size = PageSize::new(595.0, 842.0);
+        assert_eq!(size.width, 595.0);
+        assert_eq!(size.height, 842.0);
+
+        let rotated = size.rotated();
+        assert_eq!(rotated.width, 842.0);
+        assert_eq!(rotated.height, 595.0);
+    }
+
+    #[test]
+    fn test_calculate_booklet_order() {
+        let imposition = Imposition::new(PathBuf::from("test.pdf")).unwrap();
+
+        // 测试16页文档的拼版顺序
+        let order = imposition.calculate_booklet_order(
+            16,
+            ReadingDirection::LeftToRight,
+            FlipDirection::ShortEdge,
+        );
+
+        assert_eq!(order.len(), 4); // 16页需要4张纸
+
+        // 验证第一张纸的页面顺序
+        let (a, b, c, d) = order[0];
+        assert_eq!(a, 15); // 最后一页
+        assert_eq!(b, 0); // 第一页
+        assert_eq!(c, 1); // 第二页
+        assert_eq!(d, 14); // 倒数第二页
+    }
+
+    #[test]
+    fn test_calculate_target_size() {
+        let imposition = Imposition::new(PathBuf::from("test.pdf")).unwrap();
+        let original_size = PageSize::new(595.0, 842.0);
+
+        // 测试短边翻转
+        let short_edge_size =
+            imposition.calculate_target_size(original_size, FlipDirection::ShortEdge);
+        assert_eq!(short_edge_size.width, 842.0);
+        assert_eq!(short_edge_size.height, 595.0);
+
+        // 测试长边翻转
+        let long_edge_size =
+            imposition.calculate_target_size(original_size, FlipDirection::LongEdge);
+        assert_eq!(long_edge_size.width, 595.0);
+        assert_eq!(long_edge_size.height, 842.0);
+    }
+
+    #[test]
+    fn test_create_blank_page() -> Result<(), ImpositionError> {
+        let mut imposition = Imposition::new(PathBuf::from("test.pdf"))?;
+        let size = PageSize::new(595.0, 842.0);
+
+        let page_id = imposition.create_blank_page(size)?;
+
+        // 验证页面对象是否存在
+        let page_obj = imposition.document.get_object(page_id)?;
+        if let lopdf::Object::Dictionary(dict) = page_obj {
+            assert_eq!(dict.get(b"Type").unwrap().as_name().unwrap(), b"Page");
+
+            // 验证页面尺寸
+            if let Object::Array(media_box) = dict.get(b"MediaBox").unwrap() {
+                assert_eq!(media_box[2].as_float().unwrap(), 595.0);
+                assert_eq!(media_box[3].as_float().unwrap(), 842.0);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn create_test_pdf(path: &PathBuf) -> Result<(), ImpositionError> {
+        let mut doc = lopdf::Document::with_version("1.5");
+        let mut imposition = Imposition {
+            document: doc,
+            filepath: path.clone(),
+            page_size: Some(PageSize::new(595.0, 842.0)),
+        };
+
+        // 添加一些测试页面
+        for _ in 0..4 {
+            imposition.create_blank_page(PageSize::new(595.0, 842.0))?;
+        }
+
+        imposition.document.save(path)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_imposition_with_sample_pdf() -> Result<(), ImpositionError> {
+        // 创建一个临时的测试PDF文件
+        let temp_file = NamedTempFile::new().unwrap();
+        let input_path = temp_file.path().to_path_buf();
+
+        // 创建一个简单的PDF文档用于测试
+        create_test_pdf(&input_path)?;
+
+        // 创建Imposition实例
+        let mut imposition = Imposition::new(input_path.clone())?;
+
+        // 设置测试参数
+        let args = Cli {
+            input: input_path.clone(),
+            output: Some(input_path.with_extension("imposed.pdf")),
+            pages: 16,
+            reading_direction: ReadingDirection::LeftToRight,
+            flip_direction: FlipDirection::ShortEdge,
+        };
+
+        // 执行拼版
+        imposition.impose(&args)?;
+
+        // 保存结果
+        imposition.save(None)?;
+
         Ok(())
     }
 }
