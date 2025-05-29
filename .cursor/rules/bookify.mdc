@@ -1,0 +1,64 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Bookify-rs 项目说明
+
+## 项目简介
+Bookify-rs 是一个用 Rust 编写的 PDF 小册子拼版工具。它可以将普通的 PDF 文件转换成适合双面打印的小册子格式，支持不同的翻页方向和翻转方式。
+
+## 主要功能
+- 将普通 PDF 转换为小册子拼版格式
+- 支持自定义目标页数（默认16页）
+- 支持两种翻页方向：
+  - 从左到右（LeftToRight）
+  - 从右到左（RightToLeft）
+- 支持两种翻转方式：
+  - 短边翻转（ShortEdge）
+  - 长边翻转（LongEdge）
+- 自动补齐空白页到目标页数
+
+## 项目结构
+```
+src/
+├── main.rs      # 主程序入口，包含核心拼版逻辑
+├── lib.rs       # 库文件入口
+├── imposition.rs # 拼版相关功能实现
+├── args.rs      # 命令行参数处理
+└── error.rs     # 错误处理定义
+```
+
+## 使用说明
+### 命令行参数
+- `-i, --input`: 输入 PDF 文件路径
+- `-o, --output`: 输出 PDF 文件路径
+- `--pages`: 目标总页数（默认16页）
+- `--reading-direction`: 翻页方向（默认 left-to-right）
+  - 可选值：left-to-right, right-to-left
+- `--flip-direction`: 翻转方向（默认 short-edge）
+  - 可选值：short-edge, long-edge
+
+### 示例命令
+```bash
+# 基本用法
+bookify-rs -i input.pdf -o output.pdf
+
+# 指定页数和翻页方向
+bookify-rs -i input.pdf -o output.pdf --pages 32 --reading-direction right-to-left
+
+# 指定翻转方式
+bookify-rs -i input.pdf -o output.pdf --flip-direction long-edge
+```
+
+## 注意事项
+1. 输入 PDF 必须是有效的 PDF 文件
+2. 程序会自动将页面数量补齐到目标页数（默认为16页）
+3. 输出文件会覆盖已存在的同名文件
+4. 建议在打印前预览输出文件，确保拼版效果符合预期
+
+## 技术实现
+- 使用 `lopdf` 库处理 PDF 文件
+- 使用 `clap` 库处理命令行参数
+- 实现了完整的 PDF 页面操作和内容流处理
+- 支持自定义页面尺寸和布局
