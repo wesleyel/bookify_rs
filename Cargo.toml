@@ -1,6 +1,6 @@
 [package]
 name = "bookify_rs"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 repository = "https://github.com/wesleyel/bookify-rs"
 description = "A PDF processing tool for booklet imposition and double-sided printing"
