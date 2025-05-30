@@ -1,16 +1,26 @@
 # Bookify-rs
 
+[![Crates.io Version](https://img.shields.io/crates/v/bookify_rs)](https://crates.io/crates/bookify_rs)
+[![docs.rs](https://img.shields.io/docsrs/bookify_rs)](https://docs.rs/bookify_rs)
+[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/wesleyel/bookify_rs/build.yml)](https://github.com/wesleyel/bookify_rs/actions/workflows/build.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/wesleyel/bookify_rs)](https://github.com/wesleyel/bookify_rs/releases)
+
 Bookify-rs 是一个用 Rust 编写的 PDF 文档处理工具，主要用于生成适合双面打印的 PDF 文件。它提供了两种主要功能：小册子拼版和手动双面打印奇偶页面单独输出。
 
 ## 功能特点
 
 ### 1. 小册子拼版 (Booklet)
+
+> [!TIP]  
+> 打印时选择每页 2 或 4 页即可
+
 - 将普通 PDF 转换为适合双面打印的小册子格式
 - 支持每面 2 页或 4 页的排版布局
 - 自动处理页面顺序和排列
 - 保持原始 PDF 的页面质量
 
 ### 2. 手动双面打印 (Double-sided)
+
 - 支持多种翻转类型：
   - `rr`: 奇偶页面都翻转
   - `nn`: 奇偶页面都不翻转
