@@ -25,68 +25,68 @@ use crate::args::{FlipType, LayoutType, OddEven};
 /// assert_eq!(imposition_2up, vec![8, 1, 2, 7, 6, 3, 4, 5]);
 /// ```
 pub fn generate_booklet_imposition(n: u32, layout: LayoutType) -> Vec<u32> {
-    // 1. 处理特殊情况：页数为 0
+    // 1. Handle special case: page count is 0
     if n == 0 {
         return Vec::new();
     }
 
-    // 2. 根据布局类型确定每张物理纸张上的总页面数
+    // 2. Determine total pages per physical sheet based on layout type
     let pages_per_physical_sheet: u32 = match layout {
         LayoutType::TwoUp => 4,
         LayoutType::FourUp => 8,
     };
 
-    // 3. 确定小册子实际需要排版的总页数，必须是 pages_per_physical_sheet 的倍数
+    // 3. Determine total pages needed for booklet imposition, must be multiple of pages_per_physical_sheet
     let total_pages = n.div_ceil(pages_per_physical_sheet) * pages_per_physical_sheet;
 
-    // 4. 初始化结果列表
+    // 4. Initialize result list
     let mut imposition_list: Vec<u32> = Vec::new();
 
-    // 5. 遍历每张物理纸张
+    // 5. Iterate through each physical sheet
     let num_physical_sheets = total_pages / pages_per_physical_sheet;
 
     for k in 0..num_physical_sheets {
         match layout {
             LayoutType::FourUp => {
-                // 每面 4 页 (Total 8 pages per sheet)
-                // SIDE A (左上, 右上, 左下, 右下)
+                // 4 pages per side (Total 8 pages per sheet)
+                // SIDE A (Top Left, Top Right, Bottom Left, Bottom Right)
                 let side_a_pages = [
-                    total_pages - (4 * k),     // 最外侧的背面页
-                    1 + (4 * k),               // 最外侧的正面页
-                    total_pages - (4 * k + 2), // 次外侧的背面页
-                    3 + (4 * k),               // 次外侧的正面页
+                    total_pages - (4 * k),     // Outermost back page
+                    1 + (4 * k),               // Outermost front page
+                    total_pages - (4 * k + 2), // Second outermost back page
+                    3 + (4 * k),               // Second outermost front page
                 ];
                 imposition_list.extend_from_slice(&side_a_pages);
 
-                // SIDE B (左上, 右上, 左下, 右下)
+                // SIDE B (Left Top, Right Top, Left Bottom, Right Bottom)
                 let side_b_pages = [
-                    2 + (4 * k),               // 次外侧的正面页 (内侧)
-                    total_pages - (4 * k + 1), // 次外侧的背面页 (内侧)
-                    4 + (4 * k),               // 最内侧的正面页
-                    total_pages - (4 * k + 3), // 最内侧的背面页
+                    2 + (4 * k),               // Second outermost front page (inner side)
+                    total_pages - (4 * k + 1), // Second outermost back page (inner side)
+                    4 + (4 * k),               // Innermost front page
+                    total_pages - (4 * k + 3), // Innermost back page
                 ];
                 imposition_list.extend_from_slice(&side_b_pages);
             }
             LayoutType::TwoUp => {
-                // 每面 2 页 (Total 4 pages per sheet)
-                // SIDE A (左, 右)
+                // 2 pages per side (Total 4 pages per sheet)
+                // SIDE A (Left, Right)
                 let side_a_pages = [
-                    total_pages - (2 * k), // 外侧背面页
-                    1 + (2 * k),           // 外侧正面页
+                    total_pages - (2 * k), // Outer back page
+                    1 + (2 * k),           // Outer front page
                 ];
                 imposition_list.extend_from_slice(&side_a_pages);
 
-                // SIDE B (左, 右)
+                // SIDE B (Left, Right)
                 let side_b_pages = [
-                    2 + (2 * k),               // 内侧正面页
-                    total_pages - (2 * k + 1), // 内侧背面页
+                    2 + (2 * k),               // Inner front page
+                    total_pages - (2 * k + 1), // Inner back page
                 ];
                 imposition_list.extend_from_slice(&side_b_pages);
             }
         }
     }
 
-    // 6. 处理空白页：将大于原始页数 n 的页面替换为 0
+    // 6. Handle blank pages: replace pages greater than original page count n with 0
     let final_imposition_list: Vec<u32> = imposition_list
         .into_iter()
         .map(|p| if p > n { 0 } else { p })
@@ -168,7 +168,7 @@ pub fn generate_double_sided_order(
 
 #[cfg(test)]
 mod tests {
-    use super::*; // 导入父模块中的所有项
+    use super::*; // Import all items from parent module
 
     #[test]
     fn test_eight_up_n_0_pages() {
@@ -216,7 +216,7 @@ mod tests {
 
     #[test]
     fn test_four_up_n_4_pages() {
-        // 4 页的完整小册子
+        // 4 pages of complete booklet
         // Sheet 1, Side A: 4, 1
         // Sheet 1, Side B: 2, 3
         let expected = vec![4, 1, 2, 3];
@@ -225,7 +225,7 @@ mod tests {
 
     #[test]
     fn test_four_up_n_8_pages() {
-        // 8 页的完整小册子
+        // 8 pages of complete booklet
         // Sheet 1, Side A: 8, 1
         // Sheet 1, Side B: 2, 7
         // Sheet 2, Side A: 6, 3
@@ -236,16 +236,16 @@ mod tests {
 
     #[test]
     fn test_four_up_n_1_page() {
-        // 1 页的小册子，总页数应为 4
-        // 基于 n=4 的结果 [4,1,2,3]，将 >1 的替换为 0
+        // 1 page booklet, total pages should be 4
+        // Based on n=4 result [4,1,2,3], replace >1 with 0
         let expected = vec![0, 1, 0, 0];
         assert_eq!(generate_booklet_imposition(1, LayoutType::TwoUp), expected);
     }
 
     #[test]
     fn test_four_up_n_6_pages() {
-        // 6 页的小册子，总页数应为 8
-        // 基于 n=8 的结果 [8,1,2,7,6,3,4,5]，将 >6 的替换为 0
+        // 6 pages booklet, total pages should be 8
+        // Based on n=8 result [8,1,2,7,6,3,4,5], replace >6 with 0
         let expected = vec![
             0, 1, 2, 0, // 8->0, 7->0
             6, 3, 4, 5,

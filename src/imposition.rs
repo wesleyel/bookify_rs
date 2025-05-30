@@ -10,7 +10,7 @@ use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 /// PDF Document Imposer
 pub struct PdfImposer {
     doc: Document,
-    page_size: (i64, i64),
+    page_size: (f32, f32),
 }
 
 impl PdfImposer {
@@ -22,36 +22,49 @@ impl PdfImposer {
     }
 
     /// Get document page size from the first page
-    fn get_page_size(doc: &Document) -> Result<(i64, i64), BookifyError> {
+    fn get_page_size(doc: &Document) -> Result<(f32, f32), BookifyError> {
         let pages = doc.get_pages();
         if pages.is_empty() {
-            return Err(BookifyError::invalid_pdf_format("文档没有页面"));
+            return Err(BookifyError::invalid_pdf_format("Document has no pages"));
         }
 
-        let first_page_id = pages
-            .values()
-            .next()
-            .ok_or_else(|| BookifyError::pdf_processing_failed("获取页面", "无法获取第一页引用"))?;
+        let first_page_id = pages.values().next().ok_or_else(|| {
+            BookifyError::pdf_processing_failed(
+                "Getting page",
+                "Failed to get first page reference",
+            )
+        })?;
 
         let first_page = doc
             .get_object(*first_page_id)
             .and_then(Object::as_dict)
-            .map_err(|_| BookifyError::pdf_processing_failed("获取页面", "无法获取第一页字典"))?;
+            .map_err(|_| {
+                BookifyError::pdf_processing_failed(
+                    "Getting page",
+                    "Failed to get first page dictionary",
+                )
+            })?;
 
         let page_size = first_page.get(b"MediaBox").map_err(|_| {
-            BookifyError::pdf_processing_failed("获取页面尺寸", "无法获取MediaBox属性")
+            BookifyError::pdf_processing_failed(
+                "Getting page size",
+                "Failed to get MediaBox property",
+            )
         })?;
 
         let page_size = page_size.as_array().map_err(|_| {
-            BookifyError::pdf_processing_failed("获取页面尺寸", "MediaBox不是有效的数组")
+            BookifyError::pdf_processing_failed(
+                "Getting page size",
+                "MediaBox is not a valid array",
+            )
         })?;
 
-        let width = page_size[2]
-            .as_i64()
-            .map_err(|_| BookifyError::pdf_processing_failed("获取页面尺寸", "无法获取页面宽度"))?;
-        let height = page_size[3]
-            .as_i64()
-            .map_err(|_| BookifyError::pdf_processing_failed("获取页面尺寸", "无法获取页面高度"))?;
+        let width = page_size[2].as_float().map_err(|_| {
+            BookifyError::pdf_processing_failed("Getting page size", "Failed to get page width")
+        })?;
+        let height = page_size[3].as_float().map_err(|_| {
+            BookifyError::pdf_processing_failed("Getting page size", "Failed to get page height")
+        })?;
 
         Ok((width, height))
     }
@@ -62,10 +75,10 @@ impl PdfImposer {
         page_dict.set(b"Type", Object::Name(b"Page".to_vec()));
 
         let media_box = Object::Array(vec![
-            Object::Integer(0),
-            Object::Integer(0),
-            Object::Integer(self.page_size.0),
-            Object::Integer(self.page_size.1),
+            Object::Real(0.0),
+            Object::Real(0.0),
+            Object::Real(self.page_size.0),
+            Object::Real(self.page_size.1),
         ]);
         page_dict.set(b"MediaBox", media_box);
 
@@ -83,19 +96,27 @@ impl PdfImposer {
         new_kids_objects: Vec<Object>,
         page_count: u32,
     ) -> Result<(), BookifyError> {
-        let catalog_dict = self
-            .doc
-            .catalog()
-            .map_err(|_| BookifyError::pdf_processing_failed("更新文档", "无法获取目录字典"))?;
+        let catalog_dict = self.doc.catalog().map_err(|_| {
+            BookifyError::pdf_processing_failed(
+                "Updating document",
+                "Failed to get catalog dictionary",
+            )
+        })?;
 
         let pages_dict_id = catalog_dict
             .get(b"Pages")
             .map_err(|_| {
-                BookifyError::pdf_processing_failed("更新文档", "目录字典中缺少'Pages'条目")
+                BookifyError::pdf_processing_failed(
+                    "Updating document",
+                    "Missing 'Pages' entry in catalog dictionary",
+                )
             })?
             .as_reference()
             .map_err(|_| {
-                BookifyError::pdf_processing_failed("更新文档", "'Pages'条目不是有效的引用")
+                BookifyError::pdf_processing_failed(
+                    "Updating document",
+                    "'Pages' entry is not a valid reference",
+                )
             })?;
 
         let pages_dict = self
@@ -103,7 +124,10 @@ impl PdfImposer {
             .get_object_mut(pages_dict_id)
             .and_then(Object::as_dict_mut)
             .map_err(|_| {
-                BookifyError::pdf_processing_failed("更新文档", "无法获取可变的Pages字典")
+                BookifyError::pdf_processing_failed(
+                    "Updating document",
+                    "Failed to get mutable Pages dictionary",
+                )
             })?;
 
         pages_dict.set(b"Kids", Object::Array(new_kids_objects));
@@ -127,8 +151,8 @@ impl PdfImposer {
                 new_kids_objects.push(Object::Reference(page_id));
             } else {
                 return Err(BookifyError::pdf_processing_failed(
-                    "创建页面对象",
-                    format!("文档中未找到第{}页", page_num),
+                    "Creating page objects",
+                    format!("Page {} not found in document", page_num),
                 ));
             }
         }

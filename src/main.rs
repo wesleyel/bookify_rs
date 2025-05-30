@@ -31,7 +31,7 @@ fn handle_output_path(
             .prefix(prefix)
             .suffix(".pdf")
             .tempfile()
-            .map_err(|e| BookifyError::other("创建临时文件", format!("{}", e)))?
+            .map_err(|e| BookifyError::other("Creating temporary file", format!("{}", e)))?
             .into_temp_path()
             .to_path_buf()
     } else {
