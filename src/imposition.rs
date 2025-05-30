@@ -16,22 +16,43 @@ pub struct PdfImposer {
 impl PdfImposer {
     /// Create new PdfImposer instance
     pub fn new(input_path: PathBuf) -> Result<Self, BookifyError> {
-        let doc = Document::load(input_path)?;
+        let doc = Document::load(&input_path)?;
         let page_size = Self::get_page_size(&doc)?;
         Ok(Self { doc, page_size })
     }
 
-    /// Get document page size
+    /// Get document page size from the first page
     fn get_page_size(doc: &Document) -> Result<(i64, i64), BookifyError> {
-        let catalog_dict = doc.catalog()?;
-        let pages_dict_id = catalog_dict.get(b"Pages").map_err(|_| {
-            BookifyError::Other("Missing 'Pages' entry in Catalog dictionary".to_string())
+        let pages = doc.get_pages();
+        if pages.is_empty() {
+            return Err(BookifyError::invalid_pdf_format("文档没有页面"));
+        }
+
+        let first_page_id = pages
+            .values()
+            .next()
+            .ok_or_else(|| BookifyError::pdf_processing_failed("获取页面", "无法获取第一页引用"))?;
+
+        let first_page = doc
+            .get_object(*first_page_id)
+            .and_then(Object::as_dict)
+            .map_err(|_| BookifyError::pdf_processing_failed("获取页面", "无法获取第一页字典"))?;
+
+        let page_size = first_page.get(b"MediaBox").map_err(|_| {
+            BookifyError::pdf_processing_failed("获取页面尺寸", "无法获取MediaBox属性")
         })?;
 
-        let pages_dict = pages_dict_id.as_dict()?;
-        let page_size = pages_dict.get(b"MediaBox")?.as_array()?;
-        let width = page_size[2].as_i64()?;
-        let height = page_size[3].as_i64()?;
+        let page_size = page_size.as_array().map_err(|_| {
+            BookifyError::pdf_processing_failed("获取页面尺寸", "MediaBox不是有效的数组")
+        })?;
+
+        let width = page_size[2]
+            .as_i64()
+            .map_err(|_| BookifyError::pdf_processing_failed("获取页面尺寸", "无法获取页面宽度"))?;
+        let height = page_size[3]
+            .as_i64()
+            .map_err(|_| BookifyError::pdf_processing_failed("获取页面尺寸", "无法获取页面高度"))?;
+
         Ok((width, height))
     }
 
@@ -62,22 +83,28 @@ impl PdfImposer {
         new_kids_objects: Vec<Object>,
         page_count: u32,
     ) -> Result<(), BookifyError> {
-        let catalog_dict = self.doc.catalog()?;
+        let catalog_dict = self
+            .doc
+            .catalog()
+            .map_err(|_| BookifyError::pdf_processing_failed("更新文档", "无法获取目录字典"))?;
+
         let pages_dict_id = catalog_dict
             .get(b"Pages")
             .map_err(|_| {
-                BookifyError::Other("Missing 'Pages' entry in Catalog dictionary".to_string())
+                BookifyError::pdf_processing_failed("更新文档", "目录字典中缺少'Pages'条目")
             })?
             .as_reference()
             .map_err(|_| {
-                BookifyError::Other("'Pages' entry in Catalog is not a reference".to_string())
+                BookifyError::pdf_processing_failed("更新文档", "'Pages'条目不是有效的引用")
             })?;
 
         let pages_dict = self
             .doc
             .get_object_mut(pages_dict_id)
             .and_then(Object::as_dict_mut)
-            .map_err(|_| BookifyError::Other("Cannot get mutable Pages dictionary".to_string()))?;
+            .map_err(|_| {
+                BookifyError::pdf_processing_failed("更新文档", "无法获取可变的Pages字典")
+            })?;
 
         pages_dict.set(b"Kids", Object::Array(new_kids_objects));
         pages_dict.set(b"Count", Object::Integer(page_count as i64));
@@ -99,10 +126,10 @@ impl PdfImposer {
             } else if let Some(&page_id) = pages_map.get(&page_num) {
                 new_kids_objects.push(Object::Reference(page_id));
             } else {
-                return Err(BookifyError::Other(format!(
-                    "Page {} not found in document",
-                    page_num
-                )));
+                return Err(BookifyError::pdf_processing_failed(
+                    "创建页面对象",
+                    format!("文档中未找到第{}页", page_num),
+                ));
             }
         }
         Ok(new_kids_objects)
@@ -136,7 +163,9 @@ impl PdfImposer {
 
     /// Save document to specified path
     pub fn save(&mut self, output_path: PathBuf) -> Result<(), BookifyError> {
-        self.doc.save(output_path)?;
+        self.doc
+            .save(&output_path)
+            .map_err(|e| BookifyError::io_error(e, &output_path))?;
         Ok(())
     }
 }
