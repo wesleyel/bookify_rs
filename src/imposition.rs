@@ -21,7 +21,7 @@ impl PdfImposer {
         Ok(Self { doc, page_size })
     }
 
-    /// Get document page size from catalog
+    /// Get document page size
     fn get_page_size(doc: &Document) -> Result<(i64, i64), BookifyError> {
         let catalog_dict = doc.catalog()?;
         let pages_dict_id = catalog_dict.get(b"Pages").map_err(|_| {
