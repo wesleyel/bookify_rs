@@ -1,36 +1,22 @@
-use clap::ValueEnum;
+use crate::args::{FlipType, LayoutType, OddEven};
 
-/// Defines booklet imposition layout type.
-/// This enum specifies the total number of booklet pages placed on each physical sheet (front and back).
-#[derive(Copy, Clone, Debug, ValueEnum)]
-pub enum LayoutType {
-    /// Place 4 booklet pages on each physical sheet (2 pages per side).
-    /// Suitable for printing A5 booklets on A4 paper.
-    #[value(name = "two-up")]
-    TwoUp,
-    /// Place 8 booklet pages on each physical sheet (4 pages per side).
-    /// Suitable for printing A6 booklets on A4 paper or A5 booklets on A3 paper.
-    #[value(name = "four-up")]
-    FourUp,
-}
-
-/// 根据给定的页数 n 和排版布局类型，生成小册子排版的页面顺序列表。
+/// Generates a booklet imposition sequence based on page count and layout type.
 ///
-/// 小册子的总页数必须是 `LayoutType` 所定义的页面数的倍数。
-/// 如果输入的 `n` 不是指定倍数的倍数，将向上取整到最近的倍数，
-/// 多余的页面将用 0（空白页）填充。
+/// The total page count must be a multiple of the pages per sheet defined by `LayoutType`.
+/// If the input `n` is not a multiple, it will be rounded up to the nearest multiple,
+/// with blank pages (represented by 0) added as needed.
 ///
-/// # 参数
-/// * `n` - 小册子的实际页数。
-/// * `layout` - 指定每张物理纸张上的页面排版方式。
+/// # Parameters
+/// * `n` - Total number of pages in the booklet
+/// * `layout` - Layout type defining pages per sheet
 ///
-/// # 返回
-/// `Vec<u32>` - 按照打印顺序（从左到右，从上到下，先正面后反面）
-///              排列的页面序号列表。0 代表空白页。
+/// # Returns
+/// `Vec<u32>` - Page sequence ordered for printing (left-to-right, top-to-bottom, front then back).
+///             0 represents a blank page.
 ///
-/// # 示例
+/// # Example
 /// ```
-/// use bookify_rs::calc::{generate_booklet_imposition, LayoutType};
+/// use bookify_rs::{args::LayoutType, calc::generate_booklet_imposition};
 ///
 /// let imposition_4up = generate_booklet_imposition(16, LayoutType::FourUp);
 /// assert_eq!(imposition_4up, vec![16, 1, 14, 3, 2, 15, 4, 13, 12, 5, 10, 7, 6, 11, 8, 9]);
@@ -107,6 +93,77 @@ pub fn generate_booklet_imposition(n: u32, layout: LayoutType) -> Vec<u32> {
         .collect();
 
     final_imposition_list
+}
+
+/// Generates a page sequence for double-sided printing based on flip type and page selection.
+///
+/// The function handles different printing scenarios by combining flip type (RR, NN, RN, NR)
+/// with page selection (odd or even pages). It automatically adds a blank page (0) when needed
+/// for even page sequences with odd total page count.
+///
+/// # Parameters
+/// * `total_pages` - Total number of pages in the document
+/// * `flip_type` - Page flipping direction (RR: both odd and even pages, NN: no flip, etc.)
+/// * `odd_even` - Page selection (Odd: 1,3,5... or Even: 2,4,6...)
+///
+/// # Returns
+/// `Vec<u32>` - Page sequence ordered for double-sided printing.
+///                                     0 represents a blank page.
+///
+/// # Example
+/// ```
+/// use bookify_rs::{args::{FlipType, OddEven}, calc::generate_double_sided_order};
+///
+/// // Generate odd pages for both odd and even pages flipping
+/// let odd_pages = generate_double_sided_order(5, FlipType::RR, OddEven::Odd);
+/// assert_eq!(odd_pages, vec![5, 3, 1]);
+///
+/// // Generate even pages for both odd and even pages flipping
+/// let even_pages = generate_double_sided_order(5, FlipType::RR, OddEven::Even);
+/// assert_eq!(even_pages, vec![0, 4, 2]);
+///
+/// ```
+pub fn generate_double_sided_order(
+    total_pages: u32,
+    flip_type: FlipType,
+    odd_even: OddEven,
+) -> Vec<u32> {
+    // Determine if reverse order is needed
+    let should_reverse = match (flip_type, odd_even) {
+        (FlipType::RR, OddEven::Odd) => true,
+        (FlipType::RR, OddEven::Even) => true,
+        (FlipType::NN, OddEven::Odd) => false,
+        (FlipType::NN, OddEven::Even) => false,
+        (FlipType::RN, OddEven::Odd) => true,
+        (FlipType::RN, OddEven::Even) => false,
+        (FlipType::NR, OddEven::Odd) => false,
+        (FlipType::NR, OddEven::Even) => true,
+    };
+
+    // Generate page sequence
+    let mut pages = match odd_even {
+        OddEven::Odd => {
+            // Generate odd page sequence: 1, 3, 5, ...
+            (1..=total_pages).step_by(2).collect::<Vec<u32>>()
+        }
+        OddEven::Even => {
+            // Generate even page sequence: 2, 4, 6, ...
+            let mut even_pages: Vec<u32> = (2..=total_pages).step_by(2).collect();
+
+            // If total pages is odd, add a blank page (represented by 0)
+            if total_pages % 2 == 1 {
+                even_pages.push(0);
+            }
+            even_pages
+        }
+    };
+
+    // If reverse order is needed, reverse page sequence
+    if should_reverse {
+        pages.reverse();
+    }
+
+    pages
 }
 
 #[cfg(test)]
@@ -194,5 +251,24 @@ mod tests {
             6, 3, 4, 5,
         ];
         assert_eq!(generate_booklet_imposition(6, LayoutType::TwoUp), expected);
+    }
+
+    // --- Double-sided Order Tests ---
+
+    #[test]
+    fn test_double_sided_zero_pages() {
+        // Test with zero pages
+        let result = generate_double_sided_order(0, FlipType::RR, OddEven::Odd);
+        assert_eq!(result, vec![]);
+    }
+
+    #[test]
+    fn test_double_sided_single_page() {
+        // Test with single page
+        let result = generate_double_sided_order(1, FlipType::RR, OddEven::Odd);
+        assert_eq!(result, vec![1]);
+
+        let result = generate_double_sided_order(1, FlipType::RR, OddEven::Even);
+        assert_eq!(result, vec![0]);
     }
 }

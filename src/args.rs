@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-use crate::calc::LayoutType;
 use clap::{Parser, Subcommand, ValueEnum};
 
 /// Flip type
@@ -29,6 +28,20 @@ pub enum OddEven {
     /// Even pages
     #[value(name = "even")]
     Even,
+}
+
+/// Defines booklet imposition layout type.
+/// This enum specifies the total number of booklet pages placed on each physical sheet (front and back).
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum LayoutType {
+    /// Place 4 booklet pages on each physical sheet (2 pages per side).
+    /// Suitable for printing A5 booklets on A4 paper.
+    #[value(name = "two-up")]
+    TwoUp,
+    /// Place 8 booklet pages on each physical sheet (4 pages per side).
+    /// Suitable for printing A6 booklets on A4 paper or A5 booklets on A3 paper.
+    #[value(name = "four-up")]
+    FourUp,
 }
 
 /// Booklet imposition options

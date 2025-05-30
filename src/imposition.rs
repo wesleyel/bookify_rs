@@ -1,8 +1,8 @@
 use std::{collections::BTreeMap, path::PathBuf};
 
 use crate::{
-    args::{FlipType, OddEven},
-    calc::{generate_booklet_imposition, LayoutType},
+    args::{FlipType, LayoutType, OddEven},
+    calc::{generate_booklet_imposition, generate_double_sided_order},
     error::ImpositionError,
 };
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
@@ -40,17 +40,58 @@ fn update_document_pages(
     Ok(())
 }
 
+/// Get page size from document
+fn get_page_size(doc: &Document) -> Result<(i64, i64), ImpositionError> {
+    let catalog_dict = doc.catalog()?;
+    let pages_dict_id = catalog_dict.get(b"Pages").map_err(|_| {
+        ImpositionError::Other("Missing 'Pages' entry in Catalog dictionary".to_string())
+    });
+
+    let pages_dict = pages_dict_id?.as_dict()?;
+
+    let page_size = pages_dict.get(b"MediaBox")?.as_array()?;
+    let width = page_size[2].as_i64()?;
+    let height = page_size[3].as_i64()?;
+    Ok((width, height))
+}
+
+/// Create blank page
+fn create_blank_page(
+    doc: &mut Document,
+    page_size: (i64, i64),
+) -> Result<ObjectId, ImpositionError> {
+    // Create a new blank page
+    let mut page_dict = Dictionary::new();
+
+    // Set page type
+    page_dict.set(b"Type", Object::Name(b"Page".to_vec()));
+
+    // Set page size (A4)
+    let media_box = Object::Array(vec![
+        Object::Integer(0),
+        Object::Integer(0),
+        Object::Integer(page_size.0),
+        Object::Integer(page_size.1),
+    ]);
+    page_dict.set(b"MediaBox", media_box);
+
+    // Set blank content stream
+    let content_stream = Stream::new(Dictionary::new(), Vec::new());
+    let content_id = doc.add_object(Object::Stream(content_stream));
+    page_dict.set(b"Contents", Object::Reference(content_id));
+
+    // Add page to document
+    let page_id = doc.add_object(Object::Dictionary(page_dict));
+
+    Ok(page_id)
+}
+
 /// Rearrange PDF pages in a new order.
 ///
 /// # Parameters
 /// * `input_path` - Path to the input PDF file.
 /// * `output_path` - Path to the output PDF file.
-/// * `new_order` - A Vec containing the new page order.
-///                 For example, `vec![3, 1, 2]` means:
-///                 - Page 3 of the original document becomes page 1 of the new document
-///                 - Page 1 of the original document becomes page 2 of the new document
-///                 - Page 2 of the original document becomes page 3 of the new document
-///                 Page numbers are 1-based.
+/// * `layout` - Layout type defining pages per sheet.
 ///
 /// # Returns
 /// `Result<()>` - Returns `Ok(())` if the operation is successful, otherwise returns `Err`.
@@ -58,7 +99,7 @@ fn update_document_pages(
 /// # Example
 /// ```no_run
 /// use std::path::PathBuf;
-/// use bookify_rs::calc::LayoutType;
+/// use bookify_rs::args::LayoutType;
 /// use bookify_rs::imposition::rearrange_pdf_pages;
 ///
 /// let input = PathBuf::from("input.pdf");
@@ -76,46 +117,30 @@ pub fn rearrange_pdf_pages(
 ) -> Result<(), ImpositionError> {
     // 1. Load PDF document
     let mut doc = Document::load(input_path)?;
+    let page_size = get_page_size(&doc)?;
 
     // 2. Get ObjectId mapping of all pages in the document
     // `get_pages()` returns a BTreeMap<u32, ObjectId>, where u32 is 1-based page number
     // ObjectId is a reference to the page dictionary.
     let pages_map: BTreeMap<u32, ObjectId> = doc.get_pages();
 
-    // 3. Verify that the page numbers in the new order are valid
+    // 3. Generate page order
     let original_num_pages = pages_map.len() as u32;
     let new_order = generate_booklet_imposition(original_num_pages, layout);
-    if new_order.is_empty() {
-        return Err(ImpositionError::Other(
-            "New order list cannot be empty.".to_string(),
-        ));
-    }
-    if new_order.len() != original_num_pages as usize {
-        return Err(ImpositionError::Other(format!(
-            "New order list length ({}) must match original page count ({}).",
-            new_order.len(),
-            original_num_pages
-        )));
-    }
-    for &page_num in &new_order {
-        if page_num == 0 || page_num > original_num_pages {
-            return Err(ImpositionError::Other(format!(
-                "Invalid page number {} in new order. Must be between 1 and {}.",
-                page_num, original_num_pages
-            )));
-        }
-    }
 
     // 4. Build new `Kids` array
     let mut new_kids_objects: Vec<Object> = Vec::with_capacity(new_order.len());
     for page_num in new_order {
         // Get ObjectId of the corresponding page from pages_map
-        if let Some(&page_id) = pages_map.get(&page_num) {
+        if page_num == 0 {
+            // Add blank page
+            let blank_page_id = create_blank_page(&mut doc, page_size)?;
+            new_kids_objects.push(Object::Reference(blank_page_id));
+        } else if let Some(&page_id) = pages_map.get(&page_num) {
             new_kids_objects.push(Object::Reference(page_id));
         } else {
-            // Theoretically, if new_order has been validated, this should not happen
             return Err(ImpositionError::Other(format!(
-                "Page {} not found in document, despite validation",
+                "Page {} not found in document",
                 page_num
             )));
         }
@@ -170,20 +195,21 @@ pub fn export_double_sided_pdf(
 ) -> Result<(), ImpositionError> {
     // 1. Load PDF document
     let mut doc = Document::load(&input_path)?;
+    let page_size = get_page_size(&doc)?;
 
     // 2. Get ObjectId mapping of all pages in the document
     let pages_map: BTreeMap<u32, ObjectId> = doc.get_pages();
     let total_pages = pages_map.len() as u32;
 
     // 3. Generate page order
-    let page_order = generate_double_sided_order(total_pages, flip_type, odd_even)?;
+    let page_order = generate_double_sided_order(total_pages, flip_type, odd_even);
 
     // 4. Build new Kids array
     let mut new_kids_objects = Vec::with_capacity(page_order.len());
     for &page_num in &page_order {
         if page_num == 0 {
             // Add blank page
-            let blank_page_id = create_blank_page(&mut doc)?;
+            let blank_page_id = create_blank_page(&mut doc, page_size)?;
             new_kids_objects.push(Object::Reference(blank_page_id));
         } else if let Some(&page_id) = pages_map.get(&page_num) {
             new_kids_objects.push(Object::Reference(page_id));
@@ -202,76 +228,4 @@ pub fn export_double_sided_pdf(
     doc.save(&output_path)?;
 
     Ok(())
-}
-
-/// Generate page order for double-sided printing
-fn generate_double_sided_order(
-    total_pages: u32,
-    flip_type: FlipType,
-    odd_even: OddEven,
-) -> Result<Vec<u32>, ImpositionError> {
-    // Determine if reverse order is needed
-    let should_reverse = match (flip_type, odd_even) {
-        (FlipType::RR, OddEven::Odd) => true,
-        (FlipType::RR, OddEven::Even) => true,
-        (FlipType::NN, OddEven::Odd) => false,
-        (FlipType::NN, OddEven::Even) => false,
-        (FlipType::RN, OddEven::Odd) => true,
-        (FlipType::RN, OddEven::Even) => false,
-        (FlipType::NR, OddEven::Odd) => false,
-        (FlipType::NR, OddEven::Even) => true,
-    };
-
-    // Generate page sequence
-    let mut pages = match odd_even {
-        OddEven::Odd => {
-            // Generate odd page sequence: 1, 3, 5, ...
-            (1..=total_pages).step_by(2).collect::<Vec<u32>>()
-        }
-        OddEven::Even => {
-            // Generate even page sequence: 2, 4, 6, ...
-            let mut even_pages: Vec<u32> = (2..=total_pages).step_by(2).collect();
-
-            // If total pages is odd, add a blank page (represented by 0)
-            if total_pages % 2 == 1 {
-                even_pages.push(0);
-            }
-            even_pages
-        }
-    };
-
-    // If reverse order is needed, reverse page sequence
-    if should_reverse {
-        pages.reverse();
-    }
-
-    Ok(pages)
-}
-
-/// Create blank page
-fn create_blank_page(doc: &mut Document) -> Result<ObjectId, ImpositionError> {
-    // Create a new blank page
-    let mut page_dict = Dictionary::new();
-
-    // Set page type
-    page_dict.set(b"Type", Object::Name(b"Page".to_vec()));
-
-    // Set page size (A4)
-    let media_box = Object::Array(vec![
-        Object::Integer(0),
-        Object::Integer(0),
-        Object::Integer(595), // A4 width (points)
-        Object::Integer(842), // A4 height (points)
-    ]);
-    page_dict.set(b"MediaBox", media_box);
-
-    // Set blank content stream
-    let content_stream = Stream::new(Dictionary::new(), Vec::new());
-    let content_id = doc.add_object(Object::Stream(content_stream));
-    page_dict.set(b"Contents", Object::Reference(content_id));
-
-    // Add page to document
-    let page_id = doc.add_object(Object::Dictionary(page_dict));
-
-    Ok(page_id)
 }
