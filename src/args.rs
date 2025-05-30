@@ -44,16 +44,27 @@ pub enum LayoutType {
     FourUp,
 }
 
-/// Booklet imposition options
+/// Base options shared between commands
 #[derive(Debug, Parser)]
-pub struct BookletOptions {
+pub struct BaseOptions {
     /// Input PDF file
     #[arg(value_hint = clap::ValueHint::FilePath)]
     pub input: PathBuf,
 
-    /// Output PDF file
+    /// Output PDF file, default is same folder
     #[arg(short, long, value_hint = clap::ValueHint::FilePath)]
     pub output: Option<PathBuf>,
+
+    /// Output to temporary folder and print the path
+    #[arg(short, long, default_value = "false")]
+    pub temp: bool,
+}
+
+/// Booklet imposition options
+#[derive(Debug, Parser)]
+pub struct BookletOptions {
+    #[command(flatten)]
+    pub base: BaseOptions,
 
     /// Layout type
     #[arg(long, value_enum, default_value = "four-up")]
@@ -63,13 +74,8 @@ pub struct BookletOptions {
 /// Double-sided printing options
 #[derive(Debug, Parser)]
 pub struct DoubleSidedOptions {
-    /// Input PDF file
-    #[arg(value_hint = clap::ValueHint::FilePath)]
-    pub input: PathBuf,
-
-    /// Output PDF file
-    #[arg(short, long, value_hint = clap::ValueHint::FilePath)]
-    pub output: Option<PathBuf>,
+    #[command(flatten)]
+    pub base: BaseOptions,
 
     /// Flip type, default is flip on both odd and even pages
     #[arg(long, value_enum, default_value = "rr")]

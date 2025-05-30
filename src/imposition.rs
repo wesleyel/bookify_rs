@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, path::PathBuf};
 use crate::{
     args::{FlipType, LayoutType, OddEven},
     calc::{generate_booklet_imposition, generate_double_sided_order},
-    error::ImpositionError,
+    error::BookifyError,
 };
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 
@@ -15,17 +15,17 @@ pub struct PdfImposer {
 
 impl PdfImposer {
     /// Create new PdfImposer instance
-    pub fn new(input_path: PathBuf) -> Result<Self, ImpositionError> {
+    pub fn new(input_path: PathBuf) -> Result<Self, BookifyError> {
         let doc = Document::load(input_path)?;
         let page_size = Self::get_page_size(&doc)?;
         Ok(Self { doc, page_size })
     }
 
     /// Get document page size from catalog
-    fn get_page_size(doc: &Document) -> Result<(i64, i64), ImpositionError> {
+    fn get_page_size(doc: &Document) -> Result<(i64, i64), BookifyError> {
         let catalog_dict = doc.catalog()?;
         let pages_dict_id = catalog_dict.get(b"Pages").map_err(|_| {
-            ImpositionError::Other("Missing 'Pages' entry in Catalog dictionary".to_string())
+            BookifyError::Other("Missing 'Pages' entry in Catalog dictionary".to_string())
         })?;
 
         let pages_dict = pages_dict_id.as_dict()?;
@@ -36,7 +36,7 @@ impl PdfImposer {
     }
 
     /// Create blank page with page size
-    fn create_blank_page(&mut self) -> Result<ObjectId, ImpositionError> {
+    fn create_blank_page(&mut self) -> Result<ObjectId, BookifyError> {
         let mut page_dict = Dictionary::new();
         page_dict.set(b"Type", Object::Name(b"Page".to_vec()));
 
@@ -61,25 +61,23 @@ impl PdfImposer {
         &mut self,
         new_kids_objects: Vec<Object>,
         page_count: u32,
-    ) -> Result<(), ImpositionError> {
+    ) -> Result<(), BookifyError> {
         let catalog_dict = self.doc.catalog()?;
         let pages_dict_id = catalog_dict
             .get(b"Pages")
             .map_err(|_| {
-                ImpositionError::Other("Missing 'Pages' entry in Catalog dictionary".to_string())
+                BookifyError::Other("Missing 'Pages' entry in Catalog dictionary".to_string())
             })?
             .as_reference()
             .map_err(|_| {
-                ImpositionError::Other("'Pages' entry in Catalog is not a reference".to_string())
+                BookifyError::Other("'Pages' entry in Catalog is not a reference".to_string())
             })?;
 
         let pages_dict = self
             .doc
             .get_object_mut(pages_dict_id)
             .and_then(Object::as_dict_mut)
-            .map_err(|_| {
-                ImpositionError::Other("Cannot get mutable Pages dictionary".to_string())
-            })?;
+            .map_err(|_| BookifyError::Other("Cannot get mutable Pages dictionary".to_string()))?;
 
         pages_dict.set(b"Kids", Object::Array(new_kids_objects));
         pages_dict.set(b"Count", Object::Integer(page_count as i64));
@@ -92,7 +90,7 @@ impl PdfImposer {
         &mut self,
         page_order: &[u32],
         pages_map: &BTreeMap<u32, ObjectId>,
-    ) -> Result<Vec<Object>, ImpositionError> {
+    ) -> Result<Vec<Object>, BookifyError> {
         let mut new_kids_objects: Vec<Object> = Vec::with_capacity(page_order.len());
         for &page_num in page_order {
             if page_num == 0 {
@@ -101,7 +99,7 @@ impl PdfImposer {
             } else if let Some(&page_id) = pages_map.get(&page_num) {
                 new_kids_objects.push(Object::Reference(page_id));
             } else {
-                return Err(ImpositionError::Other(format!(
+                return Err(BookifyError::Other(format!(
                     "Page {} not found in document",
                     page_num
                 )));
@@ -111,7 +109,7 @@ impl PdfImposer {
     }
 
     /// Export booklet PDF
-    pub fn export_booklet(&mut self, layout: LayoutType) -> Result<(), ImpositionError> {
+    pub fn export_booklet(&mut self, layout: LayoutType) -> Result<(), BookifyError> {
         let pages_map: BTreeMap<u32, ObjectId> = self.doc.get_pages();
         let total_pages = pages_map.len() as u32;
         let new_order = generate_booklet_imposition(total_pages, layout);
@@ -126,7 +124,7 @@ impl PdfImposer {
         &mut self,
         flip_type: FlipType,
         odd_even: OddEven,
-    ) -> Result<(), ImpositionError> {
+    ) -> Result<(), BookifyError> {
         let pages_map: BTreeMap<u32, ObjectId> = self.doc.get_pages();
         let total_pages = pages_map.len() as u32;
         let new_order = generate_double_sided_order(total_pages, flip_type, odd_even);
@@ -137,7 +135,7 @@ impl PdfImposer {
     }
 
     /// Save document to specified path
-    pub fn save(&mut self, output_path: PathBuf) -> Result<(), ImpositionError> {
+    pub fn save(&mut self, output_path: PathBuf) -> Result<(), BookifyError> {
         self.doc.save(output_path)?;
         Ok(())
     }

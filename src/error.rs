@@ -1,15 +1,15 @@
 use thiserror::Error;
 
-/// 小册子排版错误类型
+/// Bookify error type
 #[derive(Debug, Error)]
-pub enum ImpositionError {
-    /// PDF 处理相关错误
+pub enum BookifyError {
+    /// PDF processing error
     #[error("PDF processing error: {0}")]
     PdfError(#[from] lopdf::Error),
-    /// IO 错误
+    /// IO error
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
-    /// 其他错误
+    /// Other error
     #[error("Other error: {0}")]
     Other(String),
 }
