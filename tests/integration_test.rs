@@ -40,14 +40,14 @@ fn test_booklet_imposition() {
 }
 
 #[test]
-fn test_double_sided_imposition() {
+fn test_double_sided_imposition_odd() {
     let input_path = PathBuf::from("tests/sample.pdf");
-    let output_path = PathBuf::from("tests/output/double-sided-test.pdf");
+    let output_path = PathBuf::from("tests/output/double-sided-test-odd.pdf");
 
     // Ensure output directory exists
     fs::create_dir_all("tests/output").unwrap();
 
-    // Create duplex printing options
+    // Create duplex printing options for odd pages
     let opts = DoubleSidedOptions {
         base: BaseOptions {
             input: input_path.clone(),
@@ -56,6 +56,41 @@ fn test_double_sided_imposition() {
         },
         flip_type: FlipType::RR,
         odd_even: OddEven::Odd,
+    };
+
+    // Execute duplex printing imposition
+    let mut imposer = PdfImposer::new(input_path.clone()).unwrap();
+    imposer
+        .export_double_sided(opts.flip_type, opts.odd_even)
+        .unwrap();
+    imposer.save(output_path.clone()).unwrap();
+
+    // Verify output file exists
+    assert!(output_path.exists());
+
+    // Clean up test files
+    if DELETE_RESULT {
+        fs::remove_file(output_path).unwrap();
+    }
+}
+
+#[test]
+fn test_double_sided_imposition_even() {
+    let input_path = PathBuf::from("tests/sample.pdf");
+    let output_path = PathBuf::from("tests/output/double-sided-test-even.pdf");
+
+    // Ensure output directory exists
+    fs::create_dir_all("tests/output").unwrap();
+
+    // Create duplex printing options for even pages
+    let opts = DoubleSidedOptions {
+        base: BaseOptions {
+            input: input_path.clone(),
+            output: Some(output_path.clone()),
+            temp: false,
+        },
+        flip_type: FlipType::RR,
+        odd_even: OddEven::Even,
     };
 
     // Execute duplex printing imposition
