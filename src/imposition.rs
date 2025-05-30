@@ -72,8 +72,31 @@ impl PdfImposer {
     /// Create blank page with page size
     fn create_blank_page(&mut self) -> Result<ObjectId, BookifyError> {
         let mut page_dict = Dictionary::new();
+
+        // Basic properties
         page_dict.set(b"Type", Object::Name(b"Page".to_vec()));
 
+        // Inherit page properties from original document
+        if let Some(first_page_id) = self.doc.get_pages().values().next() {
+            if let Ok(first_page) = self
+                .doc
+                .get_object(*first_page_id)
+                .and_then(Object::as_dict)
+            {
+                // Copy important properties
+                if let Ok(resources) = first_page.get(b"Resources") {
+                    page_dict.set(b"Resources", resources.clone());
+                }
+                if let Ok(rotate) = first_page.get(b"Rotate") {
+                    page_dict.set(b"Rotate", rotate.clone());
+                }
+                if let Ok(group) = first_page.get(b"Group") {
+                    page_dict.set(b"Group", group.clone());
+                }
+            }
+        }
+
+        // Set page size
         let media_box = Object::Array(vec![
             Object::Real(0.0),
             Object::Real(0.0),
@@ -82,9 +105,20 @@ impl PdfImposer {
         ]);
         page_dict.set(b"MediaBox", media_box);
 
+        // Create empty content stream
         let content_stream = Stream::new(Dictionary::new(), Vec::new());
         let content_id = self.doc.add_object(Object::Stream(content_stream));
         page_dict.set(b"Contents", Object::Reference(content_id));
+
+        // Set parent node reference
+        if let Ok(pages_dict_id) = self
+            .doc
+            .catalog()
+            .and_then(|c| c.get(b"Pages"))
+            .and_then(|p| p.as_reference())
+        {
+            page_dict.set(b"Parent", Object::Reference(pages_dict_id));
+        }
 
         let page_id = self.doc.add_object(Object::Dictionary(page_dict));
         Ok(page_id)
@@ -96,42 +130,29 @@ impl PdfImposer {
         new_kids_objects: Vec<Object>,
         page_count: u32,
     ) -> Result<(), BookifyError> {
-        let catalog_dict = self.doc.catalog().map_err(|_| {
-            BookifyError::pdf_processing_failed(
-                "Updating document",
-                "Failed to get catalog dictionary",
+        let catalog_dict = self.doc.catalog()?;
+        let pages_dict_id = catalog_dict.get(b"Pages")?.as_reference()?;
+
+        // Get and clone required values first
+        let (media_box, resources) = {
+            let pages_dict = self.doc.get_object(pages_dict_id)?.as_dict()?;
+            (
+                pages_dict.get(b"MediaBox").ok().cloned(),
+                pages_dict.get(b"Resources").ok().cloned(),
             )
-        })?;
+        };
 
-        let pages_dict_id = catalog_dict
-            .get(b"Pages")
-            .map_err(|_| {
-                BookifyError::pdf_processing_failed(
-                    "Updating document",
-                    "Missing 'Pages' entry in catalog dictionary",
-                )
-            })?
-            .as_reference()
-            .map_err(|_| {
-                BookifyError::pdf_processing_failed(
-                    "Updating document",
-                    "'Pages' entry is not a valid reference",
-                )
-            })?;
-
-        let pages_dict = self
-            .doc
-            .get_object_mut(pages_dict_id)
-            .and_then(Object::as_dict_mut)
-            .map_err(|_| {
-                BookifyError::pdf_processing_failed(
-                    "Updating document",
-                    "Failed to get mutable Pages dictionary",
-                )
-            })?;
-
+        // Then perform mutable operations
+        let pages_dict = self.doc.get_object_mut(pages_dict_id)?.as_dict_mut()?;
         pages_dict.set(b"Kids", Object::Array(new_kids_objects));
         pages_dict.set(b"Count", Object::Integer(page_count as i64));
+
+        if let Some(media_box) = media_box {
+            pages_dict.set(b"MediaBox", media_box);
+        }
+        if let Some(resources) = resources {
+            pages_dict.set(b"Resources", resources);
+        }
 
         Ok(())
     }
@@ -167,6 +188,7 @@ impl PdfImposer {
 
         let new_kids_objects = self.create_new_kids_objects(&new_order, &pages_map)?;
         self.update_document_pages(new_kids_objects, total_pages)?;
+        self.validate_page_tree()?;
         Ok(())
     }
 
@@ -182,6 +204,7 @@ impl PdfImposer {
 
         let new_kids_objects = self.create_new_kids_objects(&new_order, &pages_map)?;
         self.update_document_pages(new_kids_objects, new_order.len() as u32)?;
+        self.validate_page_tree()?;
         Ok(())
     }
 
@@ -190,6 +213,43 @@ impl PdfImposer {
         self.doc
             .save(&output_path)
             .map_err(|e| BookifyError::io_error(e, &output_path))?;
+        Ok(())
+    }
+
+    fn validate_page_tree(&self) -> Result<(), BookifyError> {
+        let catalog_dict = self.doc.catalog()?;
+        let pages_dict_id = catalog_dict.get(b"Pages")?.as_reference()?;
+
+        // Validate page tree structure
+        let mut stack = vec![pages_dict_id];
+        while let Some(node_id) = stack.pop() {
+            let node = self.doc.get_object(node_id)?.as_dict()?;
+
+            match node.get(b"Type")?.as_name()? {
+                b"Pages" => {
+                    // Validate page tree node
+                    if let Ok(kids) = node.get(b"Kids")?.as_array() {
+                        for kid in kids {
+                            if let Ok(kid_id) = kid.as_reference() {
+                                stack.push(kid_id);
+                            }
+                        }
+                    }
+                }
+                b"Page" => {
+                    // Validate page node
+                    if !node.has(b"MediaBox") {
+                        return Err(BookifyError::invalid_pdf_format("Page missing MediaBox"));
+                    }
+                }
+                _ => {
+                    return Err(BookifyError::invalid_pdf_format(
+                        "Invalid node type in page tree",
+                    ))
+                }
+            }
+        }
+
         Ok(())
     }
 }

@@ -261,4 +261,64 @@ mod tests {
         let result = generate_double_sided_order(1, FlipType::RR, OddEven::Even);
         assert_eq!(result, vec![0]);
     }
+
+    #[test]
+    fn test_double_sided_rr_flip() {
+        // Test RR flip type (both odd and even pages flip)
+        let odd_pages = generate_double_sided_order(5, FlipType::RR, OddEven::Odd);
+        assert_eq!(odd_pages, vec![5, 3, 1]);
+
+        let even_pages = generate_double_sided_order(5, FlipType::RR, OddEven::Even);
+        assert_eq!(even_pages, vec![0, 4, 2]);
+    }
+
+    #[test]
+    fn test_double_sided_nn_flip() {
+        // Test NN flip type (no flip on both odd and even pages)
+        let odd_pages = generate_double_sided_order(5, FlipType::NN, OddEven::Odd);
+        assert_eq!(odd_pages, vec![1, 3, 5]);
+
+        let even_pages = generate_double_sided_order(5, FlipType::NN, OddEven::Even);
+        assert_eq!(even_pages, vec![2, 4, 0]);
+    }
+
+    #[test]
+    fn test_double_sided_rn_flip() {
+        // Test RN flip type (flip on odd pages, no flip on even pages)
+        let odd_pages = generate_double_sided_order(5, FlipType::RN, OddEven::Odd);
+        assert_eq!(odd_pages, vec![5, 3, 1]);
+
+        let even_pages = generate_double_sided_order(5, FlipType::RN, OddEven::Even);
+        assert_eq!(even_pages, vec![2, 4, 0]);
+    }
+
+    #[test]
+    fn test_double_sided_nr_flip() {
+        // Test NR flip type (no flip on odd pages, flip on even pages)
+        let odd_pages = generate_double_sided_order(5, FlipType::NR, OddEven::Odd);
+        assert_eq!(odd_pages, vec![1, 3, 5]);
+
+        let even_pages = generate_double_sided_order(5, FlipType::NR, OddEven::Even);
+        assert_eq!(even_pages, vec![0, 4, 2]);
+    }
+
+    #[test]
+    fn test_double_sided_even_page_count() {
+        // Test with even page count (no blank page needed)
+        let odd_pages = generate_double_sided_order(6, FlipType::RR, OddEven::Odd);
+        assert_eq!(odd_pages, vec![5, 3, 1]);
+
+        let even_pages = generate_double_sided_order(6, FlipType::RR, OddEven::Even);
+        assert_eq!(even_pages, vec![6, 4, 2]);
+    }
+
+    #[test]
+    fn test_double_sided_large_page_count() {
+        // Test with larger page count
+        let odd_pages = generate_double_sided_order(9, FlipType::RR, OddEven::Odd);
+        assert_eq!(odd_pages, vec![9, 7, 5, 3, 1]);
+
+        let even_pages = generate_double_sided_order(9, FlipType::RR, OddEven::Even);
+        assert_eq!(even_pages, vec![0, 8, 6, 4, 2]);
+    }
 }
