@@ -11,6 +11,7 @@ use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 pub struct PdfImposer {
     doc: Document,
     page_size: (f32, f32),
+    total_pages: u32,
 }
 
 impl PdfImposer {
@@ -18,7 +19,13 @@ impl PdfImposer {
     pub fn new(input_path: PathBuf) -> Result<Self, BookifyError> {
         let doc = Document::load(&input_path)?;
         let page_size = Self::get_page_size(&doc)?;
-        Ok(Self { doc, page_size })
+        let pages_map: BTreeMap<u32, ObjectId> = doc.get_pages();
+        let total_pages = pages_map.len() as u32;
+        Ok(Self {
+            doc,
+            page_size,
+            total_pages,
+        })
     }
 
     /// Get document page size from the first page
@@ -180,42 +187,7 @@ impl PdfImposer {
         Ok(new_kids_objects)
     }
 
-    /// Export booklet PDF
-    pub fn export_booklet(&mut self, layout: LayoutType) -> Result<(), BookifyError> {
-        let pages_map: BTreeMap<u32, ObjectId> = self.doc.get_pages();
-        let total_pages = pages_map.len() as u32;
-        let new_order = generate_booklet_imposition(total_pages, layout);
-
-        let new_kids_objects = self.create_new_kids_objects(&new_order, &pages_map)?;
-        self.update_document_pages(new_kids_objects, total_pages)?;
-        self.validate_page_tree()?;
-        Ok(())
-    }
-
-    /// Export double-sided PDF
-    pub fn export_double_sided(
-        &mut self,
-        flip_type: FlipType,
-        odd_even: OddEven,
-    ) -> Result<(), BookifyError> {
-        let pages_map: BTreeMap<u32, ObjectId> = self.doc.get_pages();
-        let total_pages = pages_map.len() as u32;
-        let new_order = generate_double_sided_order(total_pages, flip_type, odd_even);
-
-        let new_kids_objects = self.create_new_kids_objects(&new_order, &pages_map)?;
-        self.update_document_pages(new_kids_objects, new_order.len() as u32)?;
-        self.validate_page_tree()?;
-        Ok(())
-    }
-
-    /// Save document to specified path
-    pub fn save(&mut self, output_path: PathBuf) -> Result<(), BookifyError> {
-        self.doc
-            .save(&output_path)
-            .map_err(|e| BookifyError::io_error(e, &output_path))?;
-        Ok(())
-    }
-
+    /// Validate page tree
     fn validate_page_tree(&self) -> Result<(), BookifyError> {
         let catalog_dict = self.doc.catalog()?;
         let pages_dict_id = catalog_dict.get(b"Pages")?.as_reference()?;
@@ -250,6 +222,39 @@ impl PdfImposer {
             }
         }
 
+        Ok(())
+    }
+
+    /// Generate new PDF
+    fn generate_new_pdf(&mut self, new_order: Vec<u32>) -> Result<(), BookifyError> {
+        let pages_map: BTreeMap<u32, ObjectId> = self.doc.get_pages();
+        let new_kids_objects = self.create_new_kids_objects(&new_order, &pages_map)?;
+        self.update_document_pages(new_kids_objects, new_order.len() as u32)?;
+        self.validate_page_tree()?;
+        Ok(())
+    }
+
+    /// Export booklet PDF
+    pub fn export_booklet(&mut self, layout: LayoutType) -> Result<(), BookifyError> {
+        let new_order = generate_booklet_imposition(self.total_pages, layout);
+        self.generate_new_pdf(new_order)
+    }
+
+    /// Export double-sided PDF
+    pub fn export_double_sided(
+        &mut self,
+        flip_type: FlipType,
+        odd_even: OddEven,
+    ) -> Result<(), BookifyError> {
+        let new_order = generate_double_sided_order(self.total_pages, flip_type, odd_even);
+        self.generate_new_pdf(new_order)
+    }
+
+    /// Save document to specified path
+    pub fn save(&mut self, output_path: PathBuf) -> Result<(), BookifyError> {
+        self.doc
+            .save(&output_path)
+            .map_err(|e| BookifyError::io_error(e, &output_path))?;
         Ok(())
     }
 }
