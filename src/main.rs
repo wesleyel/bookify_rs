@@ -1,7 +1,7 @@
 use bookify_rs::{
     args::{Cli, Commands},
     error::ImpositionError,
-    imposition::{export_double_sided_pdf, rearrange_pdf_pages},
+    imposition::PdfImposer,
 };
 use clap::Parser;
 use std::process;
@@ -27,7 +27,9 @@ fn handle_booklet(opts: bookify_rs::args::BookletOptions) -> Result<(), Impositi
         .clone()
         .unwrap_or_else(|| input_path.with_extension(format!("booklet-{:?}.pdf", opts.layout)));
 
-    rearrange_pdf_pages(input_path, output_path.clone(), opts.layout)?;
+    let mut imposer = PdfImposer::new(input_path)?;
+    imposer.export_booklet(opts.layout)?;
+    imposer.save(output_path.clone())?;
 
     println!(
         "Booklet imposition completed, output file: {}",
@@ -54,12 +56,9 @@ fn handle_double_sided(opts: bookify_rs::args::DoubleSidedOptions) -> Result<(),
             .to_path_buf()
     };
 
-    export_double_sided_pdf(
-        input_path,
-        output_path.clone(),
-        opts.flip_type,
-        opts.odd_even,
-    )?;
+    let mut imposer = PdfImposer::new(input_path)?;
+    imposer.export_double_sided(opts.flip_type, opts.odd_even)?;
+    imposer.save(output_path.clone())?;
 
     match opts.output {
         Some(path) => println!(
