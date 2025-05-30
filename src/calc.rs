@@ -128,17 +128,7 @@ pub fn generate_double_sided_order(
     flip_type: FlipType,
     odd_even: OddEven,
 ) -> Vec<u32> {
-    // Determine if reverse order is needed
-    let should_reverse = match (flip_type, odd_even) {
-        (FlipType::RR, OddEven::Odd) => true,
-        (FlipType::RR, OddEven::Even) => true,
-        (FlipType::NN, OddEven::Odd) => false,
-        (FlipType::NN, OddEven::Even) => false,
-        (FlipType::RN, OddEven::Odd) => true,
-        (FlipType::RN, OddEven::Even) => false,
-        (FlipType::NR, OddEven::Odd) => false,
-        (FlipType::NR, OddEven::Even) => true,
-    };
+    let should_reverse = flip_type.should_reverse(odd_even);
 
     // Generate page sequence
     let mut pages = match odd_even {

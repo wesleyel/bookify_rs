@@ -19,6 +19,22 @@ pub enum FlipType {
     NR,
 }
 
+impl FlipType {
+    // Determine if reverse order is needed
+    pub fn should_reverse(&self, odd_even: OddEven) -> bool {
+        match (self, odd_even) {
+            (FlipType::RR, OddEven::Odd) => true,
+            (FlipType::RR, OddEven::Even) => true,
+            (FlipType::NN, OddEven::Odd) => false,
+            (FlipType::NN, OddEven::Even) => false,
+            (FlipType::RN, OddEven::Odd) => true,
+            (FlipType::RN, OddEven::Even) => false,
+            (FlipType::NR, OddEven::Odd) => false,
+            (FlipType::NR, OddEven::Even) => true,
+        }
+    }
+}
+
 /// Output odd or even pages
 #[derive(Copy, Clone, Debug, ValueEnum)]
 pub enum OddEven {

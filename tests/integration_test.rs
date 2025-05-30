@@ -6,10 +6,11 @@ use std::fs;
 use std::path::PathBuf;
 
 const DELETE_RESULT: bool = false;
+const INPUT_PATH: &str = "tests/sample.pdf";
 
 #[test]
 fn test_booklet_imposition() {
-    let input_path = PathBuf::from("tests/sample.pdf");
+    let input_path = PathBuf::from(INPUT_PATH);
     let output_path = PathBuf::from("tests/output/booklet-test.pdf");
 
     // Ensure output directory exists
@@ -41,7 +42,7 @@ fn test_booklet_imposition() {
 
 #[test]
 fn test_double_sided_imposition_odd() {
-    let input_path = PathBuf::from("tests/sample.pdf");
+    let input_path = PathBuf::from(INPUT_PATH);
     let output_path = PathBuf::from("tests/output/double-sided-test-odd.pdf");
 
     // Ensure output directory exists
@@ -76,7 +77,7 @@ fn test_double_sided_imposition_odd() {
 
 #[test]
 fn test_double_sided_imposition_even() {
-    let input_path = PathBuf::from("tests/sample.pdf");
+    let input_path = PathBuf::from(INPUT_PATH);
     let output_path = PathBuf::from("tests/output/double-sided-test-even.pdf");
 
     // Ensure output directory exists
@@ -111,7 +112,7 @@ fn test_double_sided_imposition_even() {
 
 #[test]
 fn test_temp_output() {
-    let input_path = PathBuf::from("tests/sample.pdf");
+    let input_path = PathBuf::from(INPUT_PATH);
 
     // Create temporary file options
     let opts = BookletOptions {
@@ -146,7 +147,7 @@ fn test_temp_output() {
 
 #[test]
 fn test_custom_output_path() {
-    let input_path = PathBuf::from("tests/sample.pdf");
+    let input_path = PathBuf::from(INPUT_PATH);
     let custom_output = PathBuf::from("tests/output/custom-test.pdf");
 
     // Ensure output directory exists
