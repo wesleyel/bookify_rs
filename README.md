@@ -2,7 +2,7 @@
 
 [![Crates.io Version](https://img.shields.io/crates/v/bookify_rs)](https://crates.io/crates/bookify_rs)
 [![docs.rs](https://img.shields.io/docsrs/bookify_rs)](https://docs.rs/bookify_rs)
-[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/wesleyel/bookify_rs/build.yml)](https://github.com/wesleyel/bookify_rs/actions/workflows/build.yml)
+[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/wesleyel/bookify_rs/release.yml)](https://github.com/wesleyel/bookify_rs/actions/workflows/release.yml)
 [![GitHub Release](https://img.shields.io/github/v/release/wesleyel/bookify_rs)](https://github.com/wesleyel/bookify_rs/releases)
 
 Bookify-rs 是一个用 Rust 编写的 PDF 文档处理工具，主要用于生成适合双面打印的 PDF 文件。它提供了两种主要功能：小册子拼版和手动双面打印奇偶页面单独输出。
